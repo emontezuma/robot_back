@@ -15,13 +15,16 @@ Module basico
     Public be_log_activar As Boolean = False
     Public cadenaConexion As String
     Public rutaBD As String = "sigma"
+    Public traduccion As String()
+    Public be_idioma
+
 
     Sub Main(argumentos As String())
         If Process.GetProcessesByName _
           (Process.GetCurrentProcess.ProcessName).Length > 1 Then
 
         ElseIf argumentos.Length = 0 Then
-            MsgBox("No se puede iniciar la escritura en el LOG: Se requiere la cadena de conexión", MsgBoxStyle.Critical, "SIGMA Monitor")
+            MsgBox("String connection missing", MsgBoxStyle.Critical, "SIGMA")
         Else
             cadenaConexion = argumentos(0)
             'cadenaConexion = "server=127.0.0.1;user id=root;password=usbw;port=3307;Convert Zero Datetime=True"
@@ -38,6 +41,8 @@ Module basico
             Dim readerDS As DataSet = consultaSEL(cadSQL)
             If readerDS.Tables(0).Rows.Count > 0 Then
                 Dim reader As DataRow = readerDS.Tables(0).Rows(0)
+                be_idioma = ValNull(reader!idioma_defecto, "N")
+                etiquetas()
                 be_log_activar = ValNull(reader!be_log_activar, "A") = "S"
             End If
             If be_log_activar Then
@@ -204,11 +209,11 @@ Module basico
     Function calcularTiempo(Seg) As String
         calcularTiempo = ""
         If Seg < 60 Then
-            calcularTiempo = Seg & " seg"
+            calcularTiempo = Seg & traduccion(4)
         ElseIf Seg < 3600 Then
-            calcularTiempo = Math.Round(Seg / 60, 1) & " min"
+            calcularTiempo = Math.Round(Seg / 60, 1) & traduccion(5)
         Else
-            calcularTiempo = Math.Round(Seg / 3600, 1) & " hr"
+            calcularTiempo = Math.Round(Seg / 3600, 1) & traduccion(6)
         End If
     End Function
 
@@ -220,10 +225,16 @@ Module basico
         calcularTiempoCad = horas & ":" & Format(minutos, "00") & ":" & Format(segundos, "00")
     End Function
 
-    Function validarURI(ByVal cadena As String) As Boolean
-        Dim validatedUri As System.Uri
-        Return Uri.TryCreate(cadena, UriKind.RelativeOrAbsolute, validatedUri)
-    End Function
+    Sub etiquetas()
+        Dim general = consultaSEL("SELECT cadena FROM " & rutaBD & ".det_idiomas_back WHERE idioma = " & IIf(be_idioma = 0, 1, be_idioma) & " AND modulo = 4 ORDER BY linea")
+        Dim cadenaTrad = ""
+        If general.Tables(0).Rows.Count > 0 Then
+            For Each cadena In general.Tables(0).Rows
+                cadenaTrad = cadenaTrad & cadena!cadena
+            Next
+        End If
+        traduccion = cadenaTrad.Split(New Char() {";"c})
+    End Sub
 
 End Module
 

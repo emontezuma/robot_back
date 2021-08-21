@@ -19,6 +19,7 @@ Partial Class XtraForm2
     'Do not modify it using the code editor.
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
+        Me.components = New System.ComponentModel.Container()
         Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(XtraForm2))
         Me.GroupControl1 = New DevExpress.XtraEditors.GroupControl()
         Me.TextEdit2 = New DevExpress.XtraEditors.TextEdit()
@@ -27,7 +28,7 @@ Partial Class XtraForm2
         Me.LabelControl4 = New DevExpress.XtraEditors.LabelControl()
         Me.SimpleButton1 = New DevExpress.XtraEditors.SimpleButton()
         Me.SimpleButton2 = New DevExpress.XtraEditors.SimpleButton()
-        Me.Timer1 = New System.Windows.Forms.Timer()
+        Me.Timer1 = New System.Windows.Forms.Timer(Me.components)
         Me.LabelControl2 = New DevExpress.XtraEditors.LabelControl()
         CType(Me.GroupControl1, System.ComponentModel.ISupportInitialize).BeginInit()
         Me.GroupControl1.SuspendLayout()
@@ -48,7 +49,7 @@ Partial Class XtraForm2
         Me.GroupControl1.Name = "GroupControl1"
         Me.GroupControl1.Size = New System.Drawing.Size(233, 99)
         Me.GroupControl1.TabIndex = 0
-        Me.GroupControl1.Text = "Credenciales"
+        Me.GroupControl1.Text = "Credentials"
         '
         'TextEdit2
         '
@@ -64,9 +65,9 @@ Partial Class XtraForm2
         Me.LabelControl1.Location = New System.Drawing.Point(9, 62)
         Me.LabelControl1.Margin = New System.Windows.Forms.Padding(2)
         Me.LabelControl1.Name = "LabelControl1"
-        Me.LabelControl1.Size = New System.Drawing.Size(66, 15)
+        Me.LabelControl1.Size = New System.Drawing.Size(56, 15)
         Me.LabelControl1.TabIndex = 2
-        Me.LabelControl1.Text = "&Contraseña"
+        Me.LabelControl1.Text = "&Password"
         '
         'TextEdit1
         '
@@ -81,9 +82,9 @@ Partial Class XtraForm2
         Me.LabelControl4.Location = New System.Drawing.Point(9, 36)
         Me.LabelControl4.Margin = New System.Windows.Forms.Padding(2)
         Me.LabelControl4.Name = "LabelControl4"
-        Me.LabelControl4.Size = New System.Drawing.Size(43, 15)
+        Me.LabelControl4.Size = New System.Drawing.Size(26, 15)
         Me.LabelControl4.TabIndex = 0
-        Me.LabelControl4.Text = "&Usuario"
+        Me.LabelControl4.Text = "User"
         '
         'SimpleButton1
         '
@@ -99,7 +100,7 @@ Partial Class XtraForm2
         Me.SimpleButton1.Name = "SimpleButton1"
         Me.SimpleButton1.Size = New System.Drawing.Size(113, 36)
         Me.SimpleButton1.TabIndex = 1
-        Me.SimpleButton1.Text = "&Aceptar"
+        Me.SimpleButton1.Text = "OK"
         '
         'SimpleButton2
         '
@@ -114,7 +115,7 @@ Partial Class XtraForm2
         Me.SimpleButton2.Name = "SimpleButton2"
         Me.SimpleButton2.Size = New System.Drawing.Size(113, 36)
         Me.SimpleButton2.TabIndex = 2
-        Me.SimpleButton2.Text = "&Cancelar"
+        Me.SimpleButton2.Text = "&Cancel"
         '
         'Timer1
         '
@@ -135,7 +136,7 @@ Partial Class XtraForm2
         Me.AutoScaleDimensions = New System.Drawing.SizeF(7.0!, 15.0!)
         Me.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font
         Me.CancelButton = Me.SimpleButton2
-        Me.ClientSize = New System.Drawing.Size(356, 128)
+        Me.ClientSize = New System.Drawing.Size(370, 120)
         Me.ControlBox = False
         Me.Controls.Add(Me.LabelControl2)
         Me.Controls.Add(Me.SimpleButton2)
@@ -148,7 +149,7 @@ Partial Class XtraForm2
         Me.MinimizeBox = False
         Me.Name = "XtraForm2"
         Me.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen
-        Me.Text = "Cerrar aplicación"
+        Me.Text = "Close application"
         CType(Me.GroupControl1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.GroupControl1.ResumeLayout(False)
         Me.GroupControl1.PerformLayout()

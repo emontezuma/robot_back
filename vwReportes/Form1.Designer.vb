@@ -29,7 +29,7 @@ Partial Class Form1
         '
         'Label1
         '
-        Me.Label1.AutoSize = True
+        Me.Label1.AutoEllipsis = True
         Me.Label1.Font = New System.Drawing.Font("Lucida Sans", 9.0!, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, CType(0, Byte))
         Me.Label1.Location = New System.Drawing.Point(9, 7)
         Me.Label1.Margin = New System.Windows.Forms.Padding(2, 0, 2, 0)
@@ -62,7 +62,6 @@ Partial Class Form1
         Me.Name = "Form1"
         CType(Me.ChartControl1, System.ComponentModel.ISupportInitialize).EndInit()
         Me.ResumeLayout(False)
-        Me.PerformLayout()
 
     End Sub
 

@@ -11,7 +11,8 @@ Imports System.Net
 Imports System.ComponentModel
 
 
-Public Class    XtraForm1
+
+Public Class XtraForm1
     Dim Estado As Integer = 0
     Dim leyendoLog As Boolean = False
     Dim enMonitor As Boolean = False
@@ -25,46 +26,61 @@ Public Class    XtraForm1
     Dim procesandoMensajes As Boolean = False
     Dim enviandoReportes As Boolean = False
     Dim errorCorreos As String
-    Dim telefonos As String()
-    Dim mmcalls As String()
-    Dim losCorreos As String()
     Dim depurando As Boolean = False, primerSensor As Boolean = True
     Dim revisandoSensores As Boolean = False
     Dim incluyeHoyos = False
     Dim be_log_lineas As Integer
+    Dim be_idioma As Integer
     Dim be_log_activar As Boolean = False
     Dim be_turno_actual As Long = 0
     Dim be_audios_activar As Boolean = False
+    Dim be_tiempo_audios As Long = 0
     Dim be_hibrido_alarmar_ubicacion As Boolean = False
     Dim be_hibrido_alarmar_reparacion As Boolean = False
+    Dim be_audios_escalamiento As Integer = 0
     Dim area_change = 0
     Dim tipo_change = 0
     Dim entroReportes As Boolean = False
     Dim idProceso
     Dim dosBotProcesando As Boolean = False
     Dim cincoBotProcesando As Boolean = False
+    Dim fallasPLCProcesando As Boolean = False
     Dim botCheckList As Boolean = False
-
+    Dim tDisponible As Integer = 0
+    Dim tMantto As Integer = 0
     Dim modulos(20) As Integer
     Dim tipoANDON As Integer = 0
+    Dim contarTotal = 0
+    Dim operador As Long = 0
 
     Private Sub XtraForm1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
         Dim argumentos As String() = Environment.GetCommandLineArgs()
         If Process.GetProcessesByName _
           (Process.GetCurrentProcess.ProcessName).Length > 1 Then
-            XtraMessageBox.Show("SIGMA Monitor ya se está ejecutando en este equipo", "Sesión iniciada", MessageBoxButtons.OK, MessageBoxIcon.Error)
+
+            Dim cadSQL As String = "SELECT idioma_defecto FROM " & rutaBD & ".configuracion"
+            Dim reader As DataSet = consultaSEL(cadSQL)
+            If errorBD.Length > 0 Then
+                agregarLOG("No connection with MySQL. Error: " & errorBD, 9, 0)
+                Application.Exit()
+            Else
+                be_idioma = ValNull(reader.Tables(0).Rows(0)!idioma_defecto, "N")
+                etiquetas()
+            End If
+            XtraMessageBox.Show(traduccion(0), traduccion(1), MessageBoxButtons.OK, MessageBoxIcon.Error)
             Application.Exit()
-            'ElseIf argumentos.Length <= 1 Then
-            '    XtraMessageBox.Show("No se puede iniciar el monitor: Se requiere la cadena de conexión", "Sesión iniciada", MessageBoxButtons.OK, MessageBoxIcon.Error)
-            '    Application.Exit()
         Else
             idProceso = Process.GetCurrentProcess.Id
             If argumentos.Length > 1 Then
                 cadenaConexion = argumentos(1).ToUpper
-            ElseIf argumentos.Length > 2 Then
+            End If
+            If argumentos.Length > 2 Then
                 cadenaConexionMMCALL = argumentos(2).ToUpper
             End If
+            If argumentos.Length > 3 Then
+                cadenaConexionFALLAS = argumentos(3).ToUpper
+            End If
+
             If cadenaConexion = "" Then
                 cadenaConexion = "server=127.0.0.1;user id=root;password=usbw;port=3307;Convert Zero Datetime=True;Allow User Variables=True"
             Else
@@ -119,17 +135,49 @@ Public Class    XtraForm1
                     Next
                 End If
             End If
-            TextEdit1.Text = "Cadena de conexión ANDON: " & cadenaConexion & " | Cadena de conexión MMCALL: " & cadenaConexionMMCALL
-            actualizarBD()
+            If cadenaConexionFALLAS = "" Then
+                cadenaConexionFALLAS = "server=127.0.0.1;user id=root2;password=usbw;port=3306;Convert Zero Datetime=True;Allow User Variables=True"
+            Else
+                Dim baseCadenaConexion = "server=127.0.0.1;user id=root2;password=usbw;port=3306;Convert Zero Datetime=True;Allow User Variables=True"
+                Dim arreParametros = baseCadenaConexion.Split(New Char() {";"c})
+                Dim arreConexion = cadenaConexionFALLAS.Split(New Char() {";"c})
+
+                If arreConexion.Length > 0 Then
+                    cadenaConexionFALLAS = ""
+                    For i = LBound(arreParametros) To UBound(arreParametros)
+                        Dim variablesValores1 = arreParametros(i).Split(New Char() {"="c})
+                        Dim encontrado As Integer = -1
+                        For j = LBound(arreConexion) To UBound(arreConexion)
+                            Dim variablesValores2 = arreConexion(j).Split(New Char() {"="c})
+                            If variablesValores1(0).ToUpper = variablesValores2(0).ToUpper Then
+                                encontrado = j
+                                Exit For
+                            End If
+                        Next
+                        If encontrado = -1 Then
+                            cadenaConexionFALLAS = cadenaConexionFALLAS & arreParametros(i).ToLower & ";"
+                        Else
+                            cadenaConexionFALLAS = cadenaConexionFALLAS & arreConexion(encontrado).ToLower & ";"
+                        End If
+                    Next
+                End If
+            End If
+            Dim cadSQL As String = "SELECT idioma_defecto FROM " & rutaBD & ".configuracion"
+            Dim reader As DataSet = consultaSEL(cadSQL)
+            If errorBD.Length > 0 Then
+                agregarLOG("No connection with MySQL. Error: " & errorBD, 9, 0)
+                Application.Exit()
+            Else
+                be_idioma = ValNull(reader.Tables(0).Rows(0)!idioma_defecto, "N")
+                etiquetas()
+            End If
+            TextEdit1.Text = cadenaConexion & " | " & cadenaConexionMMCALL & " | " & cadenaConexionFALLAS
+            'actualizarBD()
         End If
-
-        BarStaticItem1.Caption = "Ejecutando desde " & Format(Now(), "dddd, dd-MMM-yyyy HH:mm:ss")
-        estadoPrograma = validarLicencia()
-        If estadoPrograma Then
-            agregarSolo("Se inicia la aplicación de monitoreo")
-        End If
-
-
+        For i = 0 To 19
+            modulos(i) = 1
+        Next
+        estadoPrograma = True 'validarLicencia()
 
     End Sub
 
@@ -141,11 +189,11 @@ Public Class    XtraForm1
         regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET ejecutando_desde = NOW()")
         If errorBD.Length > 0 Then
             'Error en la base de datos
-            agregarLOG("Ocurrió un error al intentar ejecutar una actualización en la base de datos de " & rutaBD & ". Error: " + errorBD, 9, 0)
+            agregarLOG(traduccion(6) & rutaBD & traduccion(29) + errorBD, 9, 0)
         ElseIf regsAfectados = 0 Then
             regsAfectados = consultaACT("INSERT INTO configuracion (ejecutando_desde, revisar_cada) VALUES ('" & Format(horaDesde, "yyyy/MM/dd HH:mm:ss") & "', 60)")
         End If
-        BarManager1.Items(0).Caption = "Ejecutandose desde: " + Format(horaDesde, "ddd, dd-MMM-yyyy HH:mm:ss")
+        BarManager1.Items(0).Caption = traduccion(7) + Format(horaDesde, "ddd, dd-MMM-yyyy HH:mm:ss")
 
     End Sub
 
@@ -162,10 +210,10 @@ Public Class    XtraForm1
     End Sub
 
     Private Sub SimpleButton1_Click(sender As Object, e As EventArgs) Handles SimpleButton1.Click
-        If XtraMessageBox.Show("El log actual se quitará de la pantalla definitivamente. ¿Desea continuar?", "Inicializar LOG en pantalla", MessageBoxButtons.YesNo, MessageBoxIcon.Question) <> DialogResult.No Then
+        If XtraMessageBox.Show(traduccion(8), traduccion(9), MessageBoxButtons.YesNo, MessageBoxIcon.Question) <> DialogResult.No Then
             Dim totalRegs As Integer = ListBoxControl1.Items.Count
             ListBoxControl1.Items.Clear()
-            ListBoxControl1.Items.Add(Format(Now, "dd-MMM-yyyy HH:mm:ss") & ": " + "Se inicializa el LOG a solicitud del usuario. Se eliminan " & totalRegs & " registro(s) del LOG acumulandose desde " & Format(horaDesde, "dd-MMM-yyyy HH:mm:ss"))
+            ListBoxControl1.Items.Add(Format(Now, "dd-MMM-yyyy HH:mm:ss") & ": " + traduccion(10) & totalRegs & traduccion(11) & Format(horaDesde, "dd-MMM-yyyy HH:mm:ss"))
             horaDesde = Now
             ContarLOG()
         End If
@@ -174,23 +222,23 @@ Public Class    XtraForm1
     Private Sub SimpleButton3_Click(sender As Object, e As EventArgs) Handles SimpleButton3.Click
         autenticado = False
         Dim Forma As New XtraForm2
-        Forma.Text = "Detener aplicación"
+        Forma.Text = traduccion(12)
         Forma.ShowDialog()
         If autenticado Then
-            If XtraMessageBox.Show("Esta acción detendrá el envío de alertas. ¿Desea detener el monitor de alertas?", "Detener la aplicación", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
+            If XtraMessageBox.Show(traduccion(13), traduccion(12), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
                 Estado = 1
                 SimpleButton3.Visible = False
                 SimpleButton2.Visible = True
                 ContextMenuStrip1.Items(1).Enabled = False
                 ContextMenuStrip1.Items(2).Enabled = True
                 estadoPrograma = False
-                agregarLOG("La interfaz ha sido detenida por el usuario: " & usuarioCerrar, 9, 0)
+                agregarLOG(traduccion(14) & usuarioCerrar, 9, 0)
             End If
         End If
     End Sub
 
     Private Sub SimpleButton2_Click(sender As Object, e As EventArgs) Handles SimpleButton2.Click
-        If XtraMessageBox.Show("Esta acción reanudará el envío de alertas. ¿Desea reanudar el monitor de alertas?", "Reanudar la aplicación", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
+        If XtraMessageBox.Show(traduccion(15), traduccion(16), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
             Estado = 1
             SimpleButton3.Visible = True
             SimpleButton2.Visible = False
@@ -198,7 +246,7 @@ Public Class    XtraForm1
             ContextMenuStrip1.Items(2).Enabled = False
             'enviarCorreos()
             estadoPrograma = True
-            agregarLOG("La interfaz ha sido reanudada por un usuario", 9, 0)
+            agregarLOG(traduccion(17), 9, 0)
         End If
     End Sub
 
@@ -219,7 +267,7 @@ Public Class    XtraForm1
                 ListBoxControl1.Items.RemoveAt(i)
             Next
         End If
-        BarStaticItem2.Caption = IIf(ListBoxControl1.Items.Count = 0, "Ningún registro en el visor", IIf(ListBoxControl1.Items.Count = 1, "Un registro en el visor", ListBoxControl1.Items.Count & " registros en el visor"))
+        BarStaticItem2.Caption = IIf(ListBoxControl1.Items.Count = 0, traduccion(18), IIf(ListBoxControl1.Items.Count = 1, traduccion(19), ListBoxControl1.Items.Count & traduccion(20)))
     End Sub
 
     Private Sub HyperlinkLabelControl1_Click(sender As Object, e As EventArgs) Handles HyperlinkLabelControl1.Click
@@ -254,18 +302,19 @@ Public Class    XtraForm1
 
     Private Sub revisaFlag_Tick(sender As Object, e As EventArgs) Handles revisaFlag.Tick
         If enMonitor Or Not estadoPrograma Then Exit Sub
-
         horaDesde = Now
-        Dim cadSQL As String = "SELECT hibrido_alarmar_ubicacion, hibrido_alarmar_reparacion, turno_oee, mapa_solicitud, ruta_programa_mapa, be_log_lineas, be_log_activar, audios_activar, area_change, tipo_change FROM " & rutaBD & ".configuracion"
+        Dim cadSQL As String = "SELECT audios_escalamiento, tiempo_audios, correo_prueba, idioma_defecto, hibrido_alarmar_ubicacion, hibrido_alarmar_reparacion, turno_oee, turno_secuencia, mapa_solicitud, ruta_programa_mapa, be_log_lineas, be_log_activar, audios_activar, area_change, tipo_change, listado01, fallas_plc FROM " & rutaBD & ".configuracion"
         Dim reader As DataSet = consultaSEL(cadSQL)
         Dim regsAfectados = 0
         Dim ruta_programa_mapa As String
         If errorBD.Length > 0 Then
-            agregarLOG("No se logró la conexión con MySQL. Error: " & errorBD, 9, 0)
+            agregarLOG(traduccion(21) & errorBD, 9, 0)
 
         Else
             be_log_activar = ValNull(reader.Tables(0).Rows(0)!be_log_activar, "A") = "S"
             be_audios_activar = ValNull(reader.Tables(0).Rows(0)!audios_activar, "A") = "S"
+            be_tiempo_audios = ValNull(reader.Tables(0).Rows(0)!tiempo_audios, "N")
+            be_audios_escalamiento = ValNull(reader.Tables(0).Rows(0)!audios_escalamiento, "N")
             be_log_lineas = ValNull(reader.Tables(0).Rows(0)!be_log_lineas, "N")
             be_turno_actual = ValNull(reader.Tables(0).Rows(0)!turno_oee, "N")
 
@@ -275,42 +324,61 @@ Public Class    XtraForm1
             ruta_programa_mapa = ValNull(reader.Tables(0).Rows(0)!ruta_programa_mapa, "A")
             area_change = ValNull(reader.Tables(0).Rows(0)!area_change, "N")
             tipo_change = ValNull(reader.Tables(0).Rows(0)!tipo_change, "N")
-
-            cincoBotones.Enabled = tipoANDON > 0
-            checklist.Enabled = modulos(6) = 1
             sensores.Enabled = modulos(5) = 1
-            tmpPrueba.Enabled = modulos(5) = 1
             If be_log_lineas = 0 Then be_log_lineas = 1000
-            If ValNull(reader.Tables(0).Rows(0)!mapa_solicitud, "A") = "S" Then
-                Try
-                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET mapa_solicitud = 'P'")
-                    ruta_programa_mapa = Microsoft.VisualBasic.Strings.Replace(ruta_programa_mapa, "/", "\")
-                    Shell(ruta_programa_mapa, AppWinStyle.MinimizedNoFocus)
+            'If ValNull(reader.Tables(0).Rows(0)!mapa_solicitud, "A") = "S" Then
+            ' Try
+            ' regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET mapa_solicitud = 'P'")
+            ' ruta_programa_mapa = Microsoft.VisualBasic.Strings.Replace(ruta_programa_mapa, "/", "\")
+            ' Shell(ruta_programa_mapa, AppWinStyle.MinimizedNoFocus)
+            '
+            '            Catch ex As Exception
+            '            agregarSolo(traduccion(22))
+            '            End Try
+            '            ElseIf ValNull(reader.Tables(0).Rows(0)!mapa_solicitud, "A") = "Z" Then
+            '            regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET mapa_ultimo = NOW(), mapa_solicitud = 'A'")
+            '            agregarSolo(traduccion(23))
+            '
+            '        End If
 
+            'If ValNull(reader.Tables(0).Rows(0)!listado01, "A") = "S" Then
+            ' Try
+            ' Shell(Application.StartupPath & "\listados.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "programacion" & Chr(34),' AppWinStyle.MinimizedNoFocus)
+            '       agregarSolo(traduccion(182))
+            ' Catch ex As Exception
+            ' agregarSolo(traduccion(183))
+            ' End Try
+            ' End If
+
+            If ValNull(reader.Tables(0).Rows(0)!correo_prueba, "A") = "S" Then
+
+                Try
+                    agregarSolo(traduccion(178) & " " & Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "test" & Chr(34))
+                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET correo_prueba = 'T'")
+                    Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "test" & Chr(34), AppWinStyle.MinimizedNoFocus)
                 Catch ex As Exception
-                    agregarSolo("Se generó un error al convertir el mapa, revise el log")
+                    agregarLOG(traduccion(28) & "mensajes.exe" & traduccion(29) & ex.Message, 7, 0)
                 End Try
-            ElseIf ValNull(reader.Tables(0).Rows(0)!mapa_solicitud, "A") = "Z" Then
-                regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET mapa_ultimo = NOW(), mapa_solicitud = 'A'")
-                agregarSolo("Se ha procesado una presentación de manera satisfacoria")
+
+
 
             End If
-
         End If
+
         calcularRevision()
         enMonitor = True
-        revisaFlag.Enabled = False
-        revisarEventos()
-        cancelarAlertas()
-        paseaStock()
-        asignarCarga()
-        calcularEstimado()
+        'revisaFlag.Enabled = False
+        'revisarEventos()
+        'cancelarAlertas()
+        'paseaStock()
+        'asignarCarga()
+        'calcularEstimado()
         depurar()
         enMonitor = False
 
         enviar_mensajes()
 
-        revisaFlag.Enabled = True
+        'revisaFlag.Enabled = True
 
     End Sub
     Private Sub enviar_mensajes()
@@ -329,45 +397,45 @@ Public Class    XtraForm1
                     If lotes!canal = 0 Then
                         AppFuncion = "voz.exe"
                         Shell(Application.StartupPath & "\voz.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                        agregarSolo("Se inicia la aplicación de generación de audio de llamada")
+                        agregarSolo(traduccion(24))
                     ElseIf lotes!canal = 1 Then
                         AppFuncion = "sms.exe"
                         Shell(Application.StartupPath & "\sms.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                        agregarSolo("Se inicia la aplicación de generación.exe de mensajes de texto (SMS)")
+                        agregarSolo(traduccion(25))
                     ElseIf lotes!canal = 2 Then
                         AppFuncion = "mensajes.exe"
-                        'Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                        'agregarSolo("Se inicia la aplicación de generación de correos electrónicos")
+                        Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
+                        agregarSolo(traduccion(177))
                     ElseIf lotes!canal = 3 Then
                         AppFuncion = "mmcall.exe"
                         Shell(Application.StartupPath & "\mmcall.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                        agregarSolo("Se inicia la aplicación de mensajes de texto a MMCall")
+                        agregarSolo(traduccion(26))
                     ElseIf lotes!canal = 4 Then
                         AppFuncion = "log.exe"
                         Shell(Application.StartupPath & "\log.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                        agregarSolo("Se inicia la aplicación de generación LOGs")
+                        agregarSolo(traduccion(27))
                     End If
                 Catch ex As Exception
-                    agregarLOG("Error en la ejecución de la aplicación " & AppFuncion & ". Error: " & ex.Message, 7, 0)
+                    agregarLOG(traduccion(28) & AppFuncion & traduccion(29) & ex.Message, 7, 0)
                 End Try
 
             Next
         End If
 
-        If be_audios_activar Then
-            cadSQL = "SELECT id FROM " & rutaBD & ".reportes WHERE estatus = 0 LIMIT 1"
-            falla = consultaSEL(cadSQL)
-
-            If falla.Tables(0).Rows.Count > 0 Then
-                AppFuncion = "voz.exe"
-                Shell(Application.StartupPath & "\voz.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                agregarSolo("Se inicia la aplicación de generación de audios internos")
-            End If
-
-        End If
+        'If be_audios_activar Then
+        ' Dim cadAdic = ")"
+        ' If be_audios_escalamiento = 1 Or be_audios_escalamiento Or 3 Then
+        ' cadAdic = " OR (TIME_TO_SEC(TIMEDIFF(NOW(), audios)) >= " & be_tiempo_audios & "))"
+        ' End If
+        ' cadSQL = "SELECT id FROM " & rutaBD & ".reportes WHERE estatus = 0 AND (generar_audio <> 'Z'" & cadAdic & " LIMIT 1"
+        ' falla = consultaSEL(cadSQL)
+        ' If falla.Tables(0).Rows.Count > 0 Then
+        ' AppFuncion = "voz.exe"
+        ' Shell(Application.StartupPath & "\voz.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
+        ' agregarSolo(traduccion(30))
+        ' End If
+        ' End If
         If Not estadoPrograma Then Exit Sub
-
-
     End Sub
 
     Private Sub cancelarAlertas()
@@ -394,7 +462,7 @@ Public Class    XtraForm1
                     'Se informa a los involucrados
                     regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, tipo, proceso, alarma, lista) SELECT a.alerta, b.canal, 8, a.proceso, a.id, b.lista FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".mensajes b ON a.id = b.alarma WHERE a.id = " & lotes!id & " and a.estatus = 9  GROUP BY a.alerta, b.canal, a.proceso, a.id, b.lista;")
                 End If
-                agregarLOG("Se ha cerrado la alarma del reporte: " & lotes!proceso, 0, lotes!proceso)
+                agregarLOG(traduccion(147) & lotes!proceso, 0, lotes!proceso)
             Next
         End If
 
@@ -433,7 +501,7 @@ Public Class    XtraForm1
                         'Se informa a los involucrados
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, tipo, proceso, alarma, lista) SELECT a.alerta, b.canal, 8, a.proceso, a.id, b.lista FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".mensajes b ON a.id = b.alarma WHERE a.id = " & lotes!id & " and a.estatus = 9  GROUP BY a.alerta, b.canal, a.proceso, a.id, b.lista;")
                     End If
-                    agregarLOG("Se ha cerrado la alarma del equipo: " & lotes!proceso, 0, lotes!proceso)
+                    agregarLOG(traduccion(146) & lotes!proceso, 0, lotes!proceso)
                 End If
 
             Next
@@ -452,7 +520,7 @@ Public Class    XtraForm1
                     'Se informa a los involucrados
                     regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, tipo, proceso, alarma, lista) SELECT a.alerta, b.canal, 8, a.proceso, a.id, b.lista FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".mensajes b ON a.id = b.alarma WHERE a.id = " & lotes!id & " and a.estatus = 9  GROUP BY a.alerta, b.canal, a.proceso, a.id, b.lista;")
                 End If
-                agregarLOG("Se ha cerrado la alarma del equipo: " & lotes!proceso, 0, lotes!proceso)
+                agregarLOG(traduccion(146) & lotes!proceso, 0, lotes!proceso)
 
             Next
         End If
@@ -468,15 +536,15 @@ Public Class    XtraForm1
                 If Not lotes!completada.Equals(System.DBNull.Value) Then
                     If ValNull(lotes!completada, "A") = "S" Then
                     ElseIf DateAndTime.DateAdd(DateInterval.Second, lotes!transcurrido, lotes!fechacarga) > Now() And lotes!evento = 304 Then
-                        mensajeTexto = "POSTERGADA"
+                        mensajeTexto = traduccion(31)
                     ElseIf ValNull(lotes!carga, "A") = "" Then
-                        mensajeTexto = "ELIMINADA"
+                        mensajeTexto = traduccion(32)
                     ElseIf ValNull(lotes!estatuscarga, "A") = "I" Then
-                        mensajeTexto = "CANCELADA"
+                        mensajeTexto = traduccion(33)
                     End If
                     cadAdic = "UPDATE " & rutaBD & ".cargas SET alarma_rep_p = 'N', alarma_rep_paso = 'N', alarma_rep = 'N' WHERE id = " & lotes!proceso
                 ElseIf ValNull(lotes!carga, "A") = "" Then
-                    mensajeTexto = "ELIMINADA"
+                    mensajeTexto = traduccion(32)
                 End If
                 If mensajeTexto.Length > 0 Then
                     regsAfectados = consultaACT("UPDATE " & rutaBD & ".alarmas SET estatus = 9, fin = NOW(), tiempo = TIME_TO_SEC(TIMEDIFF(NOW(), inicio))" & IIf(ValNull(lotes!informar_resolucion, "A") = "S", ", informado = 'S'", "") & " WHERE id = " & lotes!id & ";" & cadAdic & ";UPDATE " & rutaBD & ".mensajes SET estatus = 'Z' WHERE alarma = " & lotes!id)
@@ -486,7 +554,7 @@ Public Class    XtraForm1
                         'Se informa a los involucrados
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, tipo, proceso, alarma, lista, texto) SELECT a.alerta, b.canal, 8, a.proceso, a.id, b.lista, '" & mensajeTexto & "' FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".mensajes b ON a.id = b.alarma WHERE a.id = " & lotes!id & " and a.estatus = 9  GROUP BY a.alerta, b.canal, a.proceso, a.id, b.lista;")
                     End If
-                    agregarLOG("Se ha cerrado la alarma del equipo: " & lotes!proceso, 0, lotes!proceso)
+                    agregarLOG(traduccion(146) & lotes!proceso, 0, lotes!proceso)
                 End If
             Next
         End If
@@ -1381,97 +1449,97 @@ Public Class    XtraForm1
                         End If
 
                     Else
-                        agregarLOG("Un evento con el reporte " & procesoID & " no generó alerta por solapamiento en la alerta " & idAlerta, 2, procesoID)
+                        agregarLOG(traduccion(148).Replace("campo_0", procesoID).Replace("campo_1", idAlerta), 2, procesoID)
                     End If
                 End If
             Next
         End If
         Dim cadAgregar = ""
         If pases > 0 And evento = 101 Then
-            cadAgregar = "Se alarmó un reporte por tiempo de espera excecido"
+            cadAgregar = traduccion(34)
             If pases > 1 Then
-                cadAgregar = "Se alarmaron " & pases & " reportes por tiempo de espera excecido"
+                cadAgregar = traduccion(35) & pases & traduccion(36)
             End If
         ElseIf pases > 0 And evento = 102 Then
-            cadAgregar = "Se alarmó un reporte por tiempo de reparación excecido"
+            cadAgregar = traduccion(37)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo de reparación excecido"
+                cadAgregar = traduccion(39) & pases & traduccion(38)
             End If
         ElseIf pases > 0 And evento = 103 Then
-            cadAgregar = "Se alarmó un reporte por tiempo de informe excecido"
+            cadAgregar = traduccion(40)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo de informe excecido"
+                cadAgregar = traduccion(39) & pases & traduccion(41)
             End If
         ElseIf pases > 0 And evento = 201 Then
-            cadAgregar = "Se alarmó un equipo por bajo rate"
+            cadAgregar = traduccion(42)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por bajo rate"
+                cadAgregar = traduccion(39) & pases & traduccion(43)
             End If
         ElseIf pases > 0 And evento = 202 Then
-            cadAgregar = "Se alarmó un equipo por sobre rate"
+            cadAgregar = traduccion(149)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por sobre rate"
+                cadAgregar = traduccion(39) & pases & traduccion(150)
             End If
         ElseIf pases > 0 And evento = 203 Then
-            cadAgregar = "Se alarmó un equipo por no detección de piezas"
+            cadAgregar = traduccion(151)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por no detección de piezas"
+                cadAgregar = traduccion(39) & pases & traduccion(152)
             End If
         ElseIf pases > 0 And evento = 204 Then
-            cadAgregar = "Se alarmó un equipo por bajo FTQ"
+            cadAgregar = traduccion(153)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por bajo FTQ"
+                cadAgregar = traduccion(39) & pases & traduccion(154)
             End If
         ElseIf pases > 0 And evento = 205 Then
-            cadAgregar = "Se alarmó un equipo por bajo Disponibilidad"
+            cadAgregar = traduccion(155)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por bajo Disponibilidad"
+                cadAgregar = traduccion(39) & pases & traduccion(156)
             End If
 
         ElseIf pases > 0 And evento = 206 Then
-            cadAgregar = "Se alarmó un equipo por bajo Eficiencia"
+            cadAgregar = traduccion(157)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por bajo Eficiencia"
+                cadAgregar = traduccion(39) & pases & traduccion(158)
             End If
         ElseIf pases > 0 And evento = 207 Then
-            cadAgregar = "Se alarmó un equipo por bajo OAE"
+            cadAgregar = traduccion(159)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por bajo OAE"
+                cadAgregar = traduccion(39) & pases & traduccion(160)
             End If
         ElseIf pases > 0 And evento = 301 Then
-            cadAgregar = "Se alarmó un proceso por salto de operación"
+            cadAgregar = traduccion(161)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por salto de operación"
+                cadAgregar = traduccion(39) & pases & traduccion(162)
             End If
         ElseIf pases > 0 And evento = 302 Then
-            cadAgregar = "Se alarmó un proceso por tiempo excedido de stock"
+            cadAgregar = traduccion(163)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de stock"
+                cadAgregar = traduccion(39) & pases & traduccion(164)
             End If
         ElseIf pases > 0 And evento = 303 Then
-            cadAgregar = "Se alarmó un proceso por tiempo excedido de proceso"
+            cadAgregar = traduccion(165)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de proceso"
+                cadAgregar = traduccion(39) & pases & traduccion(166)
             End If
         ElseIf pases > 0 And evento = 304 Then
-            cadAgregar = "Se alarmó un proceso por tiempo excedido de programación"
+            cadAgregar = traduccion(167)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de programación"
+                cadAgregar = traduccion(39) & pases & traduccion(168)
             End If
         ElseIf pases > 0 And evento = 305 Then
-            cadAgregar = "Se alarmó un proceso por anticipación por tiempo excedido de stock"
+            cadAgregar = traduccion(169)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de stock"
+                cadAgregar = traduccion(39) & pases & traduccion(164)
             End If
         ElseIf pases > 0 And evento = 306 Then
-            cadAgregar = "Se alarmó un proceso por anticipación por tiempo excedido de proceso"
+            cadAgregar = traduccion(170)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de proceso"
+                cadAgregar = traduccion(39) & pases & traduccion(166)
             End If
         ElseIf pases > 0 And evento = 307 Then
-            cadAgregar = "Se alarmó un proceso por anticipación por tiempo excedido de programación"
+            cadAgregar = traduccion(171)
             If pases > 1 Then
-                cadAgregar = "Se generaron " & pases & " alarmas por tiempo excedido de programación"
+                cadAgregar = traduccion(39) & pases & traduccion(168)
             End If
         End If
 
@@ -1482,15 +1550,18 @@ Public Class    XtraForm1
         Dim cadSQL As String = "SELECT revisar_cada FROM " & rutaBD & ".configuracion"
         Dim reader As DataSet = consultaSEL(cadSQL)
         If errorBD.Length > 0 Then
-            agregarLOG("Ocurrió un error al intentar leer MySQL. Error: " + errorBD, 9, 0)
+            agregarLOG(traduccion(21) + errorBD, 9, 0)
         Else
             If reader.Tables(0).Rows.Count > 0 Then
                 If ValNull(reader.Tables(0).Rows(0)!revisar_cada, "N") = 0 Then
                     eSegundos = 60
                     Dim regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion SET revisar_cada = 60")
-                    revisaFlag.Interval = 1000
-                    revisaFlag.Enabled = False
-                    revisaFlag.Enabled = True
+                    If revisaFlag.Interval <> 1000 Then
+                        revisaFlag.Interval = 1000
+                        revisaFlag.Enabled = False
+                        revisaFlag.Enabled = True
+                    End If
+
                 Else
                     eSegundos = ValNull(reader.Tables(0).Rows(0)!revisar_cada, "N")
                     If revisaFlag.Interval <> eSegundos * 1000 Then
@@ -1502,17 +1573,17 @@ Public Class    XtraForm1
 
             End If
         End If
-        BarManager1.Items(1).Caption = "Conectado (cada " & eSegundos & " segundos)"
+        BarManager1.Items(1).Caption = traduccion(44).Replace("campo_0", eSegundos)
     End Sub
 
     Function calcularTiempo(Seg) As String
         calcularTiempo = ""
         If Seg < 60 Then
-            calcularTiempo = Seg & " seg"
+            calcularTiempo = Seg & traduccion(45)
         ElseIf Seg < 3600 Then
-            calcularTiempo = Math.Round(Seg / 60, 1) & " min"
+            calcularTiempo = Math.Round(Seg / 60, 1) & traduccion(46)
         Else
-            calcularTiempo = Math.Round(Seg / 3600, 1) & " hr"
+            calcularTiempo = Math.Round(Seg / 3600, 1) & traduccion(47)
         End If
     End Function
 
@@ -1527,15 +1598,12 @@ Public Class    XtraForm1
 
 
     Sub escalamientos()
-
-        BarManager1.Items(1).Caption = "Conectado (revisando escalamientos...)"
-        procesandoEscalamientos = True
         Dim regsAfectados = 0
         Dim cadSQL = ""
 
-
+        Dim limite = 0
         'Escalada 5
-        cadSQL = "SELECT a.*, b.evento, b.tiempo5, b.prioridad, b.lista5, b.escalar5, b.llamada5, sms5, log5, mmcall5, correo5 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND b.escalar4 <> 'N' AND b.escalar5 <> 'N' AND ((a.estatus = 5) OR (a.estatus >= 5 AND a.estatus < 9 AND b.repetir5 = 'S')) AND (a.escalamientos5 <= b.veces5 OR b.veces5 = 0)"
+        cadSQL = "SELECT a.*, b.evento, b.escrep5, b.tiempo5, b.prioridad, b.lista5, b.escalar5, b.llamada5, sms5, log5, mmcall5, correo5 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND b.escalar4 <> 'N' AND b.escalar5 <> 'N' AND ((a.estatus = 5) OR (a.estatus >= 5 AND a.estatus < 9 AND b.repetir5 = 'S')) AND (a.escalamientos5 <= b.veces5 OR b.veces5 = 0)"
         Dim alertaDS As DataSet = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
 
@@ -1550,13 +1618,16 @@ Public Class    XtraForm1
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
                 'Se verifica que no se haya repetido antes
+                limite = 0
                 If alerta!escalada5.Equals(System.DBNull.Value) Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada4, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = alerta!tiempo5
                 Else
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada5, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = IIf(alerta!escrep5 = 0, alerta!tiempo5, alerta!escrep5)
                 End If
                 Dim tiempoCad = ""
-                If segundos >= alerta!tiempo5 Then
+                If segundos >= limite Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
                     tiempoCad = calcularTiempoCad(segundos)
                     If ValNull(alerta!escalar5, "A") = "T" And alerta!estatus = 5 Then
@@ -1581,7 +1652,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log5, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista5 & ", id, 5 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se han escalado el reporte: " & procesoID & " para el nivel 5", 0, procesoID)
+                    agregarLOG(traduccion(174).Replace("campo_0", procesoID) & "5", 0, procesoID)
                     Dim cadAdic = "fase = 15, "
                     If alerta!escalamientos5 > 0 Then
                         cadAdic = ""
@@ -1591,7 +1662,7 @@ Public Class    XtraForm1
             Next
         End If
 
-        cadSQL = "SELECT a.*, b.evento, b.tiempo4, b.prioridad, b.lista4, b.escalar4, b.llamada4, sms4, log4, mmcall4, correo4 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND b.escalar4 <> 'N' AND ((a.estatus = 4) OR (a.estatus >= 4 AND a.estatus < 9 AND b.repetir4 = 'S')) AND (a.escalamientos4 <= b.veces4 OR b.veces4 = 0)"
+        cadSQL = "SELECT a.*, b.evento, b.escrep4, b.tiempo4, b.prioridad, b.lista4, b.escalar4, b.llamada4, sms4, log4, mmcall4, correo4 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND b.escalar4 <> 'N' AND ((a.estatus = 4) OR (a.estatus >= 4 AND a.estatus < 9 AND b.repetir4 = 'S')) AND (a.escalamientos4 <= b.veces4 OR b.veces4 = 0)"
         alertaDS = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
 
@@ -1606,13 +1677,16 @@ Public Class    XtraForm1
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
                 'Se verifica que no se haya repetido antes
+                limite = 0
                 If alerta!escalada4.Equals(System.DBNull.Value) Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada3, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = alerta!tiempo4
                 Else
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada4, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = IIf(alerta!escrep4 = 0, alerta!tiempo4, alerta!escrep4)
                 End If
                 Dim tiempoCad = ""
-                If segundos >= alerta!tiempo4 Then
+                If segundos >= limite Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
                     tiempoCad = calcularTiempoCad(segundos)
                     If ValNull(alerta!escalar4, "A") = "T" And alerta!estatus = 4 Then
@@ -1637,7 +1711,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log4, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista4 & ", id, 4 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se han escalado el reporte: " & procesoID & " para el nivel 4", 0, procesoID)
+                    agregarLOG(traduccion(174).Replace("campo_0", procesoID) & "4", 0, procesoID)
                     Dim cadAdic = "fase = 14, "
                     If alerta!escalamientos4 > 0 Then
                         cadAdic = ""
@@ -1647,7 +1721,7 @@ Public Class    XtraForm1
             Next
         End If
 
-        cadSQL = "SELECT a.*, b.evento, b.tiempo3, b.prioridad, b.lista3, b.escalar3, b.llamada3, sms3, log3, mmcall3, correo3 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND ((a.estatus = 3) OR (a.estatus >= 3 AND a.estatus < 9 AND b.repetir3 = 'S')) AND (a.escalamientos3 <= b.veces3 OR b.veces3 = 0)"
+        cadSQL = "SELECT a.*, b.evento, b.escrep3, b.tiempo3, b.prioridad, b.lista3, b.escalar3, b.llamada3, sms3, log3, mmcall3, correo3 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND b.escalar3 <> 'N' AND ((a.estatus = 3) OR (a.estatus >= 3 AND a.estatus < 9 AND b.repetir3 = 'S')) AND (a.escalamientos3 <= b.veces3 OR b.veces3 = 0)"
         alertaDS = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
 
@@ -1661,14 +1735,18 @@ Public Class    XtraForm1
                 Dim segundos = 0
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
+
+                limite = 0
                 'Se verifica que no se haya repetido antes
                 If alerta!escalada3.Equals(System.DBNull.Value) Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada2, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = alerta!tiempo3
                 Else
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada3, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = IIf(alerta!escrep3 = 0, alerta!tiempo3, alerta!escrep3)
                 End If
                 Dim tiempoCad = ""
-                If segundos >= alerta!tiempo3 Then
+                If segundos >= limite Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
                     tiempoCad = calcularTiempoCad(segundos)
                     If ValNull(alerta!escalar3, "A") = "T" And alerta!estatus = 3 Then
@@ -1693,7 +1771,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log3, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista3 & ", id, 3 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se han escalado el reporte: " & procesoID & " para el nivel 3", 0, procesoID)
+                    agregarLOG(traduccion(174).Replace("campo_0", procesoID) & "3", 0, procesoID)
                     Dim cadAdic = "fase = 13, "
                     If alerta!escalamientos3 > 0 Then
                         cadAdic = ""
@@ -1703,7 +1781,7 @@ Public Class    XtraForm1
             Next
         End If
 
-        cadSQL = "SELECT a.*, b.evento, b.tiempo2, b.prioridad, b.lista2, b.escalar2, b.llamada2, sms2, log2, mmcall2, correo2 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND ((a.estatus = 2) OR (a.estatus >= 2 AND a.estatus < 9 AND b.repetir2 = 'S')) AND (a.escalamientos2 <= b.veces2 OR b.veces2 = 0)"
+        cadSQL = "SELECT a.*, b.evento, b.escrep2, b.tiempo2, b.prioridad, b.lista2, b.escalar2, b.llamada2, sms2, log2, mmcall2, correo2 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND b.escalar2 <> 'N' AND ((a.estatus = 2) OR (a.estatus >= 2 AND a.estatus < 9 AND b.repetir2 = 'S')) AND (a.escalamientos2 <= b.veces2 OR b.veces2 = 0)"
         alertaDS = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
 
@@ -1718,13 +1796,16 @@ Public Class    XtraForm1
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
                 'Se verifica que no se haya repetido antes
+                limite = 0
                 If alerta!escalada2.Equals(System.DBNull.Value) Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada1, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = alerta!tiempo2
                 Else
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada2, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = IIf(alerta!escrep2 = 0, alerta!tiempo2, alerta!escrep2)
                 End If
                 Dim tiempoCad = ""
-                If segundos >= alerta!tiempo2 Then
+                If segundos >= limite Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
                     tiempoCad = calcularTiempoCad(segundos)
                     If ValNull(alerta!escalar2, "A") = "T" And alerta!estatus = 2 Then
@@ -1749,7 +1830,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log2, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista2 & ", id, 2 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se han escalado el reporte: " & procesoID & " para el nivel 2", 0, procesoID)
+                    agregarLOG(traduccion(174).Replace("campo_0", procesoID) & "2", 0, procesoID)
                     Dim cadAdic = "fase = 12, "
                     If alerta!escalamientos2 > 0 Then
                         cadAdic = ""
@@ -1759,7 +1840,8 @@ Public Class    XtraForm1
             Next
         End If
 
-        cadSQL = "SELECT a.*, b.evento, b.tiempo1, b.prioridad, b.lista1, b.escalar1, b.llamada1, sms1, log1, mmcall1, correo1 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND ((a.estatus = 1) OR (a.estatus >= 1 AND a.estatus < 9 AND b.repetir1 = 'S')) AND (a.escalamientos1 < b.veces1 OR b.veces1 = 0)"
+
+        cadSQL = "SELECT a.*, b.evento, b.escrep1, b.tiempo1, b.prioridad, b.lista1, b.escalar1, b.llamada1, sms1, log1, mmcall1, correo1 FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE b.escalar1 <> 'N' AND ((a.estatus = 1) OR (a.estatus >= 1 AND a.estatus < 9 AND b.repetir1 = 'S')) AND (a.escalamientos1 < b.veces1 OR b.veces1 = 0)"
         alertaDS = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
 
@@ -1774,13 +1856,16 @@ Public Class    XtraForm1
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
                 'Se verifica que no se haya repetido antes
+                limite = 0
                 If alerta!escalada1.Equals(System.DBNull.Value) Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = alerta!tiempo1
                 Else
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!escalada1, "yyyy/MM/dd HH:mm:ss")), Now)
+                    limite = IIf(alerta!escrep1 = 0, alerta!tiempo1, alerta!escrep1)
                 End If
                 Dim tiempoCad = ""
-                If segundos >= alerta!tiempo1 Then
+                If segundos >= limite Then
                     segundos = DateDiff(DateInterval.Second, CDate(Format(alerta!activada, "yyyy/MM/dd HH:mm:ss")), Now)
                     tiempoCad = calcularTiempoCad(segundos)
                     If ValNull(alerta!escalar1, "A") = "T" And alerta!estatus = 1 Then
@@ -1805,7 +1890,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log1, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista1 & ", id, 1 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se han escalado el reporte: " & procesoID & " para el nivel 1", 0, procesoID)
+                    agregarLOG(traduccion(174).Replace("campo_0", procesoID) & "1", 0, procesoID)
                     Dim cadAdic = "fase = 11, "
                     If alerta!escalamientos1 > 0 Then
                         cadAdic = ""
@@ -1815,10 +1900,10 @@ Public Class    XtraForm1
             Next
         End If
 
+
         cadSQL = "SELECT a.*, b.evento, b.repetir_tiempo, b.repetir_veces, b.prioridad, b.lista, b.llamada, sms, log, mmcall, correo FROM " & rutaBD & ".alarmas a INNER JOIN " & rutaBD & ".cat_alertas b ON a.alerta = b.id AND b.estatus = 'A' WHERE ((a.estatus = 1 AND b.repetir = 'T') OR (a.estatus >= 1 AND a.estatus < 9 AND b.repetir = 'S')) AND b.repetir_tiempo > 0 AND (a.repeticiones < b.repetir_veces OR b.repetir_veces = 0)"
         alertaDS = consultaSEL(cadSQL)
         If alertaDS.Tables(0).Rows.Count > 0 Then
-
             For Each alerta In alertaDS.Tables(0).Rows
                 If Not estadoPrograma Then
                     procesandoEscalamientos = False
@@ -1830,7 +1915,7 @@ Public Class    XtraForm1
                 Dim activarEscalada As Boolean = False
                 Dim uID = alerta!id
                 'Se verifica que no se haya repetido antes
-                Application.DoEvents()
+                'Application.DoEvents()
                 Dim repeticiones As Integer = alerta!repeticiones + 1
                 'Se verifica que no se haya repetido antes
                 If alerta!repetida.Equals(System.DBNull.Value) Then
@@ -1861,7 +1946,7 @@ Public Class    XtraForm1
                     If ValNull(alerta!log, "A") = "S" Then
                         regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma, tipo) SELECT alerta, 4, proceso, prioridad, " & alerta!lista & ", " & uID & ", 9 FROM " & rutaBD & ".alarmas WHERE id = " & uID)
                     End If
-                    agregarLOG("Se ha enviado una repetición del reporte: " & procesoID, 0, procesoID)
+                    agregarLOG(traduccion(175).Replace("campo_0", procesoID), 0, procesoID)
                     regsAfectados = consultaACT("UPDATE " & rutaBD & ".alarmas SET repeticiones = repeticiones + 1, repetida = NOW(), estatus = 1 WHERE id = " & alerta!id)
                 End If
             Next
@@ -1869,7 +1954,7 @@ Public Class    XtraForm1
 
 
         procesandoEscalamientos = False
-        BarManager1.Items(1).Caption = "Conectado (cada " & eSegundos & " segundos)"
+        BarManager1.Items(1).Caption = traduccion(44).Replace("campo_0", eSegundos)
         crearMensajes()
     End Sub
 
@@ -1891,26 +1976,26 @@ Public Class    XtraForm1
 
 
     Private Sub ReanudarElMonitorToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ReanudarElMonitorToolStripMenuItem.Click
-        If XtraMessageBox.Show("Esta acción reanudará el envío de alertas. ¿Desea reanudar el monitoreo de las fallas?", "Reanudar la aplicación", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
+        If XtraMessageBox.Show(traduccion(15), traduccion(16), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
             Estado = 1
             SimpleButton3.Visible = True
             SimpleButton2.Visible = False
             ContextMenuStrip1.Items(1).Enabled = True
             ContextMenuStrip1.Items(2).Enabled = False
             estadoPrograma = True
-            agregarLOG("La interfaz ha sido reanudada por un usuario", 9, 0)
+            agregarLOG(traduccion(17), 9, 0)
         End If
     End Sub
 
     Private Sub ToolStripMenuItem1_Click(sender As Object, e As EventArgs) Handles ToolStripMenuItem1.Click
-        If XtraMessageBox.Show("Esta acción detendrá el envío de alertas. ¿Desea detener el monitor de las fallas?", "Detener la aplicación", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
+        If XtraMessageBox.Show(traduccion(13), traduccion(12), MessageBoxButtons.YesNo, MessageBoxIcon.Warning) <> DialogResult.No Then
             Estado = 1
             SimpleButton3.Visible = False
             SimpleButton2.Visible = True
             ContextMenuStrip1.Items(1).Enabled = False
             ContextMenuStrip1.Items(2).Enabled = True
             estadoPrograma = False
-            agregarLOG("La interfaz ha sido detenida por un usuario", 9, 0)
+            agregarLOG(traduccion(48), 9, 0)
         End If
     End Sub
 
@@ -1929,11 +2014,11 @@ Public Class    XtraForm1
     Private Sub XtraForm1_Closing(sender As Object, e As CancelEventArgs) Handles Me.Closing
         autenticado = False
         Dim Forma As New XtraForm2
-        Forma.Text = "Detener aplicación"
+        Forma.Text = traduccion(140)
         Forma.ShowDialog()
         If autenticado Then
-            If XtraMessageBox.Show("Esta acción CERRARÁ la aplicación de monitoreo. ¿Desea continuar?", "Detener la aplicación", MessageBoxButtons.YesNo, MessageBoxIcon.Stop) <> DialogResult.No Then
-                agregarLOG("La aplicación se cerró el usuario: " & usuarioCerrar, 9, 0)
+            If XtraMessageBox.Show(traduccion(138), traduccion(12), MessageBoxButtons.YesNo, MessageBoxIcon.Stop) <> DialogResult.No Then
+                agregarLOG(traduccion(139) & usuarioCerrar, 9, 0)
             Else
                 e.Cancel = True
             End If
@@ -1943,7 +2028,7 @@ Public Class    XtraForm1
     End Sub
 
     Sub agregarSolo(cadena As String)
-        ListBoxControl1.Items.Insert(0, "MONITOR " & Format(Now, "dd-MMM HH:mm:ss") & ": " & cadena)
+        ListBoxControl1.Items.Insert(0, traduccion(49) & " " & Format(Now, "dd-MMM HH:mm:ss") & ": " & cadena)
         ContarLOG()
     End Sub
 
@@ -1985,7 +2070,7 @@ Public Class    XtraForm1
     mesesAtras * -1, Now()), "yyyyMM") & "0100'")
 
 
-                    agregarLOG("Se ejecutó la depuración de la base de datos para el período " & Format(Now(), "MMMM-yyyy") & " (todo lo anterior al día: " & Format(DateAndTime.DateAdd(DateInterval.Month, mesesAtras * -1, Now()), "yyyy/MM") & "/01). Se eliminaron permanentemente " & eliminados & " registro(s)", 7, 0)
+                    agregarLOG(traduccion(141) & Format(Now(), "MMMM-yyyy") & traduccion(142) & Format(DateAndTime.DateAdd(DateInterval.Month, mesesAtras * -1, Now()), "yyyy/MM") & "/01). " & traduccion(143) & eliminados & traduccion(144), 7, 0)
 
                 End If
             End If
@@ -2004,6 +2089,9 @@ Public Class    XtraForm1
             regsAfectados = consultaACT("DELETE FROM " & rutaBD & ".lecturas_resumen WHERE desde < '" & Format(DateAndTime.DateAdd(DateInterval.Day, -2, Now()), "yyyy/MM/dd") & " 00:00:00'")
             eliminados = eliminados + regsAfectados
             regsAfectados = consultaACT("DELETE FROM " & rutaBD & ".mensajes_procesados WHERE fecha < '" & Format(DateAndTime.DateAdd(DateInterval.Day, -1, Now()), "yyyy/MM/dd") & "'")
+            regsAfectados = consultaACT("DELETE FROM " & rutaBD & ".temporal_mmcall WHERE estatus = 1;DELETE FROM " & rutaBD & ".temporal_plc WHERE estatus = 1;")
+            regsAfectados = consultaACT("DELETE FROM " & rutaBD & ".horaxhora WHERE estatus = 'C';DELETE FROM " & rutaBD & ".horaxhora WHERE estatus = 'Z' AND dia < '" & Format(DateAndTime.DateAdd(DateInterval.Month, -6, Now()), "yyyy/MM/dd") & "'")
+
 
             eliminados = eliminados + regsAfectados
             depurando = False
@@ -2011,7 +2099,8 @@ Public Class    XtraForm1
     End Sub
 
     Private Sub revisarLog_Tick(sender As Object, e As EventArgs) Handles revisarLog.Tick
-        revisarLog.Enabled = False
+
+        'revisarLog.Enabled = False
         If leyendoLog Or Not estadoPrograma Then Exit Sub
         leyendoLog = True
         Dim regsAfectados = consultaACT("UPDATE " & rutaBD & ".log SET visto = 'P' WHERE visto = 'N'")
@@ -2021,21 +2110,21 @@ Public Class    XtraForm1
             sinEventos.Enabled = False
             sinEventos.Enabled = True
             For Each elmensaje In reader.Tables(0).Rows
-                Dim appOrigen = "MONITOR"
+                Dim appOrigen = traduccion(49)
                 If elmensaje!aplicacion = 30 Then
-                    appOrigen = "TELEFONIA"
+                    appOrigen = traduccion(50)
                 ElseIf elmensaje!aplicacion = 40 Then
-                    appOrigen = "CORREOS"
+                    appOrigen = traduccion(51)
                 ElseIf elmensaje!aplicacion = 20 Then
-                    appOrigen = "MMCALL"
+                    appOrigen = traduccion(52)
                 ElseIf elmensaje!aplicacion = 60 Then
-                    appOrigen = "LOG"
+                    appOrigen = traduccion(53)
                 ElseIf elmensaje!aplicacion = 50 Then
-                    appOrigen = "SMS"
+                    appOrigen = traduccion(54)
                 ElseIf elmensaje!aplicacion = 70 Then
-                    appOrigen = "VOZ"
+                    appOrigen = traduccion(55)
                 ElseIf elmensaje!aplicacion = 80 Then
-                    appOrigen = "REPORTES"
+                    appOrigen = traduccion(56)
                 End If
                 ListBoxControl1.Items.Insert(0, appOrigen & " " & Format(Now, "dd-MMM HH:mm:ss") & ": " & elmensaje!texto)
 
@@ -2044,18 +2133,18 @@ Public Class    XtraForm1
             ContarLOG()
         End If
         leyendoLog = False
-        revisarLog.Enabled = True
+        'revisarLog.Enabled = True
     End Sub
 
     Private Sub sinEventos_Tick(sender As Object, e As EventArgs) Handles sinEventos.Tick
-        agregarSolo("No se ha generado información durante los ultimos 5 minutos")
+        agregarSolo(traduccion(57))
     End Sub
 
-    Private Sub escalamiento_Tick(sender As Object, e As EventArgs) Handles escalamiento.Tick
+    Private Sub escalamiento_Tick(sender As Object, e As EventArgs)
+
         If procesandoEscalamientos Or Not estadoPrograma Then Exit Sub
-        escalamiento.Enabled = False
+        procesandoEscalamientos = True
         escalamientos()
-        escalamiento.Enabled = True
     End Sub
 
     Private Sub reportes_Tick(sender As Object, e As EventArgs) Handles reportes.Tick
@@ -2069,20 +2158,20 @@ Public Class    XtraForm1
             Exit Sub
 
         End If
-        reportes.Enabled = False
+        'reportes.Enabled = False
         enviandoReportes = True
         Try
 
             Shell(Application.StartupPath & "\reportes.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-            agregarSolo("Se inicia la aplicación de Envío de reportes por correo")
+            agregarSolo(traduccion(58))
         Catch ex As Exception
-            agregarLOG("Error en la ejecución de la aplicación de envío de reportes por correos. Error: " & ex.Message, 7, 0)
+            agregarLOG(traduccion(59) & ex.Message, 7, 0)
         End Try
         enviandoReportes = False
-        reportes.Enabled = True
+        'reportes.Enabled = True
     End Sub
 
-    Private Sub arduino_Tick(sender As Object, e As EventArgs) Handles arduino.Tick
+    Private Sub arduino_Tick(sender As Object, e As EventArgs)
         If Not estadoPrograma Then Exit Sub
 
         Dim cadSQL As String = "SELECT ruta_audios, ruta_sms, be_alarmas_llamadas, be_alarmas_sms FROM " & rutaBD & ".configuracion"
@@ -2094,7 +2183,7 @@ Public Class    XtraForm1
         Dim be_alarmas_sms As Boolean = False
 
         If errorBD.Length > 0 Then
-            agregarLOG("No se logró la conexión con MySQL. Error: " + errorBD, 9, 0)
+            agregarLOG(traduccion(21) + errorBD, 9, 0)
 
         Else
             rutaAudios = ValNull(reader.Tables(0).Rows(0)!ruta_audios, "A")
@@ -2150,9 +2239,9 @@ Public Class    XtraForm1
         If llamarPrograma Then
             Try
                 Shell(Application.StartupPath & "\arduino.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
-                agregarSolo("Se inicia la aplicación de Interfaz telefónica")
+                agregarSolo(traduccion(60))
             Catch ex As Exception
-                agregarLOG("Error en la ejecución de la aplicación de Interfaz telefónica Error: " & ex.Message, 7, 0)
+                agregarLOG(traduccion(61) & ex.Message, 7, 0)
             End Try
         End If
     End Sub
@@ -2171,14 +2260,14 @@ Public Class    XtraForm1
         If falla.Tables(0).Rows.Count > 0 Then
             Dim licenciaSIGMA As String = ValNull(falla.Tables(0).Rows(0)!licencia, "A")
             If licenciaSIGMA.Length = 0 Then
-                mensajeLicencia = "Introduzca una licencia en la aplicación web de SIGMA e intente de nuevo o contacte con su proveedor de SIGMA"
+                mensajeLicencia = traduccion(62)
             Else
                 cadSQL = "SELECT CONCAT(key_number, serial) AS mmcall FROM " & rutaMMCALL & ".locations"
                 falla = consultaSEL(cadSQL, cadenaConexionMMCALL)
                 If falla.Tables(0).Rows.Count > 0 Then
                     Dim licenciaMMCall As String = ValNull(falla.Tables(0).Rows(0)!mmcall, "A")
                     If licenciaMMCall.Length = 0 Then
-                        mensajeLicencia = "Su licencia de MMCall no existe o no está configurada. Contacte con su proveedor de MMCall"
+                        mensajeLicencia = traduccion(63)
                     Else
                         Dim partes = licenciaSIGMA.Split(New Char() {"-"c})
                         partes(0) = Format(CLng("&H" & partes(0)), "00000000000")
@@ -2196,7 +2285,7 @@ Public Class    XtraForm1
                             totalMutiplicado = Val(Microsoft.VisualBasic.Strings.Left(totalMutiplicado, 3))
                         End If
                         If totalMutiplicado <> Val(Microsoft.VisualBasic.Strings.Mid(numeroCompleto, Len(numeroCompleto) - 4, 3)) Then
-                            mensajeLicencia = "Su licencia de SIGMA no es válida. Comuníquese con su proveedor de SIGMA (SUM_Error)"
+                            mensajeLicencia = traduccion(64)
                         Else
                             numeroCompleto = numeroCompleto.Substring(1, Len(numeroCompleto) - 6)
                             Dim licencia As String = numeroCompleto.Substring(0, 7)
@@ -2322,33 +2411,33 @@ Public Class    XtraForm1
                             If licValida Or anyo & mes & dia <> "99999999" Then
                                 If IsDate(anyo & "/" & mes & "/" & dia) Then
                                     If Format(DateAndTime.DateValue(anyo & "/" & mes & "/" & dia), "yyyyMMdd") < Format(Now.Date, "yyyyMMdd") Then
-                                        mensajeLicencia = "Su licencia de SIGMA ha expirado. Comuníquese con su proveedor de SIGMA para adquirir su aplicación"
+                                        mensajeLicencia = traduccion(65)
                                     Else
-                                        LabelControl2.Text = LabelControl2.Text & " vence el " & Format(DateAndTime.DateValue(anyo & "/" & mes & "/" & dia), "ddd, dd/MMM/yyyy")
+                                        'LabelControl2.Text = LabelControl2.Text & traduccion(66) & Format(DateAndTime.DateValue(anyo & "/" & mes & "/" & dia), "ddd, dd/MMM/yyyy")
                                     End If
 
                                 End If
                             ElseIf Not licValida Then
-                                mensajeLicencia = "Su licencia de SIGMA no es válida. Comuníquese con su proveedor de SIGMA (Licencia inválida)"
+                                mensajeLicencia = traduccion(67)
                             End If
                         End If
                     End If
                 Else
-                    mensajeLicencia = "Su MMCall no está configurado. Contacte con su proveedor de MMCall"
+                    mensajeLicencia = traduccion(68)
                 End If
             End If
         Else
-            mensajeLicencia = "Su aplicación de SIGMA no está configurada. Configure desde la aplicación web de SIGMA e intente de nuevo o contacte con su proveedor de SIGMA"
+            mensajeLicencia = traduccion(69)
         End If
         If mensajeLicencia.Length > 0 Then
-            XtraMessageBox.Show(mensajeLicencia, "No es posible continuar", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            XtraMessageBox.Show(mensajeLicencia, traduccion(70), MessageBoxButtons.OK, MessageBoxIcon.Error)
             Application.Exit()
             estadoPrograma = False
             validarLicencia = False
         End If
     End Function
 
-    Private Sub reenviarMMCALL_Tick(sender As Object, e As EventArgs) Handles reenviarMMCALL.Tick
+    Private Sub reenviarMMCALL_Tick(sender As Object, e As EventArgs)
 
         If reenviar Or Not estadoPrograma Then Exit Sub
         reenviar = True
@@ -2357,7 +2446,7 @@ Public Class    XtraForm1
 
             Shell(Application.StartupPath & "\repeticiones.exe " & Chr(34) & cadenaConexion & Chr(34), AppWinStyle.MinimizedNoFocus)
         Catch ex As Exception
-            agregarLOG("Error en la ejecución de la aplicación de envío de repeticiones de MMCall. Error: " & ex.Message, 7, 0)
+            agregarLOG(traduccion(71) & ex.Message, 7, 0)
         End Try
 
         reenviar = False
@@ -2369,12 +2458,14 @@ Public Class    XtraForm1
     End Function
 
     Private Sub sensores_Tick(sender As Object, e As EventArgs) Handles sensores.Tick
+        If miTurno = -1 Then Exit Sub
         If revisandoSensores Or Not estadoPrograma Then Exit Sub
-
         If modulos(5) = 0 Then Exit Sub
+
         If primerSensor Then primerSensor = False
         Dim ultimo = DateAndTime.Now()
         revisandoSensores = True
+
         Dim regsAfectados As Long = 0
         Dim cadAdic = ""
         Dim cadAdic2 = ""
@@ -2382,25 +2473,31 @@ Public Class    XtraForm1
         Dim produccion_tc As Double = 0, calidad_tc As Double = 0
         Dim general As DataSet
         incluyeHoyos = False
-        Dim cadSQL = "SELECT turno_oee, andon_prorrateado FROM " & rutaBD & ".configuracion"
+        Dim cadSQL = "SELECT turno_oee, turno_secuencia, andon_prorrateado FROM " & rutaBD & ".configuracion"
         Dim config As DataSet = consultaSEL(cadSQL)
         Dim aCortar = False
         Dim TTotal As Long = 0
         Dim hayTipo3 As Boolean
         Dim AP As Boolean = False
         If config.Tables(0).Rows.Count > 0 Then
+
+
             AP = ValNull(config.Tables(0).Rows(0)!andon_prorrateado, "A") = "S"
+            miSecuencia = config.Tables(0).Rows(0)!turno_secuencia
             'Se calcula el turno
-            regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas SET estatus = 1 WHERE estatus = 0 AND (LENGTH(sensor) <> 10 AND LEFT(sensor, 2) <> 99)")
-            cadSQL = "SELECT c.id AS maquinaid, c.paro_wip, c.oee_estado, c.oee_estado_desde, c.oee_historico_rate, c.oee_historico_rate_reiniciar, c.linea, c.oee_umbral_produccion, c.nombre AS nequipo, e.nombre AS nparte, e.referencia, f.nombre AS ntripulacion, g.numero AS norden, d.nombre AS nturno, c.oee_turno_actual, c.oee_tripulacion_actual, c.oee_lote_actual, c.oee_parte_actual, b.id, b.equipo, b.tipo, b.area AS area_sensor, b.clasificacion AS clasificacion_sensor, b.multiplicador, b.base, DATE(a.fecha) AS fecha, IFNULL(SUM(a.valor), 0) AS totals, d.mover, d.inicia, d.termina FROM " & rutaBD & ".cat_maquinas c INNER JOIN " & rutaBD & ".relacion_procesos_sensores b ON b.equipo = c.id and b.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_partes e ON c.oee_parte_actual = e.id AND e.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_tripulacion f ON c.oee_tripulacion_actual = f.id AND f.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_turnos d ON c.oee_turno_actual = d.id AND d.estatus = 'A' LEFT JOIN " & rutaBD & ".lecturas a ON b.sensor = a.sensor AND a.estatus = 1 LEFT JOIN " & rutaBD & ".lotes g ON c.oee_lote_actual = g.id AND g.estatus = 'A' WHERE c.oee = 'S' AND c.estatus = 'A' GROUP BY c.linea, c.nombre, e.nombre, e.referencia, f.nombre, b.equipo, b.tipo, b.multiplicador, b.base, DATE(a.fecha), c.oee_turno_actual, c.oee_tripulacion_actual, c.oee_lote_actual, c.oee_parte_actual, d.mover"
+            regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas SET estatus = 1 WHERE estatus = 0")
+            cadSQL = "Select c.ultima_hora, c.paro_emergencia, c.proceso, c.id As maquinaid, c.replanear, c.replanear_desde, c.compaginar, c.compaginar_desde, c.paro_wip, c.oee_estado, c.oee_estado_desde, c.oee_historico_rate, c.oee_historico_rate_reiniciar, c.linea, c.oee_umbral_produccion, c.nombre As nequipo, e.nombre As nparte, e.referencia, e.referencia, f.nombre As ntripulacion, g.numero As norden, d.nombre As nturno, c.oee_turno_actual, c.oee_tripulacion_actual, c.oee_operador_actual, c.oee_lote_actual, c.oee_lote_anterior, c.oee_lote_cambio, c.oee_parte_actual, b.id, b.equipo, b.tipo, b.area As area_sensor, b.clasificacion As clasificacion_sensor, b.kg_saco_parte, c.pieza, b.multiplicador, b.base, Date(a.fecha) As fecha, IFNULL(SUM(a.valor), 0) As totals, d.cambiodia, d.mover, d.inicia, d.termina, d.secuencia FROM " & rutaBD & ".cat_maquinas c INNER JOIN " & rutaBD & ".relacion_procesos_sensores b On b.equipo = c.id And b.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_partes e ON c.oee_parte_actual = e.id AND e.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_tripulacion f ON c.oee_tripulacion_actual = f.id AND f.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_turnos d ON c.oee_turno_actual = d.id AND d.estatus = 'A' LEFT JOIN " & rutaBD & ".lecturas a ON b.sensor = a.sensor AND a.estatus = 1 LEFT JOIN " & rutaBD & ".lotes g ON c.oee_lote_actual = g.id AND g.estatus = 'A' WHERE c.oee = 'S' AND c.estatus = 'A' GROUP BY c.ultima_hora, c.paro_emergencia, c.linea, c.nombre, e.nombre, e.referencia, f.nombre, b.equipo, b.tipo, b.multiplicador, b.kg_saco_parte, c.pieza, b.base, DATE(a.fecha), c.oee_turno_actual, c.oee_tripulacion_actual, c.oee_operador_actual, c.oee_lote_actual, c.oee_lote_anterior, c.oee_lote_cambio, c.oee_parte_actual, d.mover, d.cambiodia"
 
             Dim capturas = consultaSEL(cadSQL)
+            Dim paroEmergencia As Boolean = False
             If capturas.Tables(0).Rows.Count > 0 Then
-
                 Dim equipoActual = 0
                 For Each captura In capturas.Tables(0).Rows
+                    If ValNull(captura!nturno, "A") = "" Then
+                        Dim elvis = 1
+                    End If
+                    Dim cantidadAntes As Boolean = False
                     hayTipo3 = False
-                    'MsgBox("Maquina  a maquina: " & captura!maquinaid)
                     Dim cadPlaneado As String = ", planeado = 'N'"
                     produccion_seg = 0
                     produccion_tc = 0
@@ -2414,14 +2511,13 @@ Public Class    XtraForm1
                     Dim cadSQLParo = ""
                     Dim funcionando As Boolean
 
-                    If captura!maquinaid = 23 Then
+                    If captura!maquinaid = 1 Then
                         Dim uno = 1
                     End If
 
                     cadSQL = "SELECT piezas, bajo, alto, tiempo, unidad FROM " & rutaBD & ".relacion_partes_equipos WHERE (equipo = " & captura!maquinaid & " Or equipo = 0) And (parte = " & captura!oee_parte_actual & " Or parte = 0) ORDER BY parte DESC, equipo DESC LIMIT 1"
                     general = consultaSEL(cadSQL)
                     If general.Tables(0).Rows.Count > 0 Then
-                        ''MsgBox("entro 4 " & general.Tables(0).Rows(0)!piezas)
                         rateEquipo = general.Tables(0).Rows(0)!piezas
                         rateBajo = general.Tables(0).Rows(0)!bajo
                         rateAlto = general.Tables(0).Rows(0)!alto
@@ -2431,8 +2527,8 @@ Public Class    XtraForm1
 
                     If rateEquipo = 0 Then rateEquipo = 1
                     Dim TC As Double = 0
-                    If captura!oee_parte_actual = 0 Then
-                        TC = 0
+                    If rateEquipo = 0 Then
+                        TC = 1
                     ElseIf medTiempo = 2 Then
                         TC = 3600 / rateEquipo
                     ElseIf medTiempo = 1 Then
@@ -2445,8 +2541,6 @@ Public Class    XtraForm1
                     End If
 
                     TC = Math.Round(TC, 10)
-                    'MsgBox("Tiempo ciclo " & TC
-
 
                     'Buscar Paro
 
@@ -2461,11 +2555,15 @@ Public Class    XtraForm1
                     Dim fechaEstado = ultimo
                     Dim tiempoEstado As Long = 0
                     Dim tiempoParo As Long = 0
+                    Dim tiempoParoCorte As Long = 0
                     Dim claseParoActual = 0
                     Dim finaliza_sensor = False
                     Dim piezasWIP = 0
                     Dim cadDetener = ""
                     Dim cadIniciarParo = ""
+                    paroEmergencia = captura!paro_emergencia = "S"
+                    Dim salioEmergencia As Boolean = False
+                    Dim paroCreado = False
 
                     'Se pregunta si hay un paro activo
                     Dim cadSQLOri = "SELECT id, clase, corte, reporte, finaliza_sensor, wip_piezas, tipo, estado, inicia, finaliza, wip_piezas FROM " & rutaBD & ".detalleparos WHERE maquina = " & captura!maquinaid & " AND estatus = 'A' AND estado = 'C' ORDER BY tipo, inicia LIMIT 1"
@@ -2476,7 +2574,6 @@ Public Class    XtraForm1
                     Dim general2 As DataSet = consultaSEL(cadSQL)
                     TTotal = 0
                     If general2.Tables(0).Rows.Count > 0 Then
-                        agregarSolo("Se consigue paro anterior")
                         'Hay paro vencido
                         If general.Tables(0).Rows.Count > 0 Then
                             'Si hay un paro activo, se termina
@@ -2486,14 +2583,13 @@ Public Class    XtraForm1
                                 paroCorte = general.Tables(0).Rows(0)!inicia
                             End If
                             If paroCorte <> ultimo Then
-                                tiempoParo = tiempoValido(paroCorte, ultimo, captura!maquinaid)
+                                tiempoParo = tiempoValido(paroCorte, ultimo, captura!proceso)
+                                tiempoParoCorte = tiempoParo
                             End If
-                            agregarSolo("Se cancela el paro anterior")
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(general.Tables(0).Rows(0)!inicia, ultimo, captura!maquinaid) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & general.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".detalleparos SET hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & general.Tables(0).Rows(0)!id & " AND clase <> 0")
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(general.Tables(0).Rows(0)!inicia, ultimo, captura!proceso) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & general.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".detalleparos SET hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & general.Tables(0).Rows(0)!id & " AND clase <> 0")
 
                         End If
                         'Se activa el paro vencido
-                        agregarSolo("Se activa paro planeado por change over")
                         cadDetener = "UPDATE " & rutaBD & ".detalleparos SET estado = 'C', turno = " & config.Tables(0).Rows(0)!turno_oee & ", inicia = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', inicio = 1, turno = " & captura!oee_turno_actual & ", fecha = '" & Format(ultimo, "yyyy/MM/dd") & "' WHERE id = " & general2.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid
                         regsAfectados = consultaACT(cadDetener)
 
@@ -2513,9 +2609,10 @@ Public Class    XtraForm1
                                 paroCorte = general2.Tables(0).Rows(0)!inicia
                             End If
                             If paroCorte <> ultimo Then
-                                tiempoParo = tiempoParo + tiempoValido(paroCorte, ultimo, captura!maquinaid)
+                                tiempoParoCorte = tiempoValido(paroCorte, ultimo, captura!proceso)
+                                tiempoParo = tiempoParo + tiempoParoCorte
                             End If
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(general2.Tables(0).Rows(0)!inicia, ultimo, captura!maquinaid) & ", finalizo = 1 WHERE id = " & general2.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".detalleparos SET hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & general2.Tables(0).Rows(0)!id & " AND clase <> 0;UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(general2.Tables(0).Rows(0)!inicia, ultimo, captura!proceso) & ", finalizo = 1 WHERE id = " & general2.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".detalleparos SET hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & general2.Tables(0).Rows(0)!id & " AND clase <> 0;UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
                             If regsAfectados > 0 Then
 
                                 paroActual = 0
@@ -2529,10 +2626,9 @@ Public Class    XtraForm1
                             paroActual = general.Tables(0).Rows(0)!id
                             reporteActual = general.Tables(0).Rows(0)!reporte
                             claseParoActual = general.Tables(0).Rows(0)!clase
-
+                            finaliza_sensor = ValNull(general.Tables(0).Rows(0)!finaliza_sensor, "A") = "S"
                             If claseParoActual = 0 Then
                                 cadPlaneado = ", planeado = 'S'"
-                                finaliza_sensor = ValNull(general.Tables(0).Rows(0)!finaliza_sensor, "A") = "S"
                                 piezasWIP = ValNull(general.Tables(0).Rows(0)!wip_piezas, "N")
                             End If
 
@@ -2556,8 +2652,12 @@ Public Class    XtraForm1
                                 If miReporte.Tables(0).Rows.Count > 0 Then
                                     'Se cerró el reporte
                                     If miReporte.Tables(0).Rows(0)!estatus > 10 Then
-                                        Dim miTiempo = tiempoValido(paroDesde, miReporte.Tables(0).Rows(0)!cierre_atencion, captura!maquinaid)
-                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & miTiempo & ", finaliza = '" & Format(miReporte.Tables(0).Rows(0)!cierre_atencion, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(miReporte.Tables(0).Rows(0)!cierre_atencion, "yyyy/MM/dd HH:mm:ss") & "', finalizo_accion = 'R' WHERE reporte = " & reporteActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                        Dim miTiempo = tiempoValido(paroDesde, miReporte.Tables(0).Rows(0)!cierre_atencion, captura!proceso)
+                                        Dim fCierre = DateAndTime.Now
+                                        If Not miReporte.Tables(0).Rows(0)!cierre_atencion.Equals(System.DBNull.Value) Then
+                                            fCierre = miReporte.Tables(0).Rows(0)!cierre_atencion
+                                        End If
+                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & miTiempo & ", finaliza = '" & Format(fCierre, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(fCierre, "yyyy/MM/dd HH:mm:ss") & "', finalizo_accion = 'R' WHERE reporte = " & reporteActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
                                         reporteActual = 0
                                         paroActual = 0
                                         claseParoActual = 0
@@ -2580,7 +2680,8 @@ Public Class    XtraForm1
                                 End If
                                 'Se contabiliza el tiempo del paro
                                 If paroCorte <> ultimo Then
-                                    tiempoParo = tiempoParo + tiempoValido(paroCorte, ultimo, captura!maquinaid)
+                                    tiempoParoCorte = tiempoValido(paroCorte, ultimo, captura!proceso)
+                                    tiempoParo = tiempoParo + tiempoParoCorte
                                 End If
                             End If
                         End If
@@ -2592,35 +2693,99 @@ Public Class    XtraForm1
                     buffer = 0
                     Dim piezas As Long = 0
                     Dim fecha = ultimo
-                    If captura!totals > 0 Then
+                    If captura!totals > 0 And captura!tipo = 0 Then
                         fecha = captura!fecha
                         piezas = captura!totals * captura!multiplicador
                         If captura!base > 0 Then
                             piezas = piezas / captura!base
                         End If
                     End If
-                    If ValNull(captura!mover, "N") = 1 And Format(fecha, "HH") >= "00" And Format(fecha, "HH:mm:ss") < captura!termina.ToString Then
-                        fecha = DateAdd(DateInterval.Day, -1, fecha)
-                    ElseIf ValNull(captura!mover, "N") = 2 And Format(fecha, "HH:mm:ss") >= captura!inicia.ToString And Format(fecha, "HHmmss") <= "235959" Then
-                        fecha = DateAdd(DateInterval.Day, 1, fecha)
-                    End If
-
-                    If captura!tipo = 3 Then
-                        hayTipo3 = True
-                        cadSQL = "SELECT oee_estado, oee_estado_desde FROM " & rutaBD & ".cat_maquinas WHERE id = " & captura!maquinaid
-                        general = consultaSEL(cadSQL)
-                        If general.Tables(0).Rows.Count > 0 Then
-                            If ValNull(general.Tables(0).Rows(0)!oee_estado, "A") = "S" Then
-                                tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, general.Tables(0).Rows(0)!oee_estado_desde, ultimo)
-                                TTotal = TTotal + tiempoEstado
-                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F' WHERE equipo = " & captura!maquinaid)
-                                funcionando = True
-                            End If
+                    If ValNull(captura!cambiodia, "A") = "S" Then
+                        If ValNull(captura!mover, "N") = 1 And Format(fecha, "HH") >= "00" And Format(fecha, "HH:mm:ss") < captura!termina.ToString Then
+                            fecha = DateAdd(DateInterval.Day, -1, fecha)
+                        ElseIf ValNull(captura!mover, "N") = 2 And Format(fecha, "HH:mm:ss") >= captura!inicia.ToString And Format(fecha, "HHmmss") <= "235959" Then
+                            fecha = DateAdd(DateInterval.Day, 1, fecha)
                         End If
                     End If
 
+                    'If captura!tipo = 3 Then
+                    ' hayTipo3 = True
+                    ' cadSQL = "SELECT oee_estado, oee_estado_desde FROM " & rutaBD & ".cat_maquinas WHERE id = " & captura!maquinaid
+                    ' general = consultaSEL(cadSQL)
+                    ' If general.Tables(0).Rows.Count > 0 Then
+                    ' If ValNull(general.Tables(0).Rows(0)!oee_estado, "A") = "S" Then
+                    ' tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, general.Tables(0).Rows(0)!oee_estado_desde, ultimo)
+                    ' TTotal = TTotal + tiempoEstado
+                    ' regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F' WHERE equipo = " & captura!maquinaid)
+                    'funcionando = True
+                    ' End If
+                    ' End If
+                    ' End If
+
+                    'Buscar objetivo
+                    Dim objetivo As Double = 0
+                    Dim van As Double = 0
+                    Dim reinicio As Long = 0
+                    Dim cadTarimas = ", 0, 0"
+                    Dim cadTarimas2 = ""
+                    cadSQL = "Select id, objetivo, reinicio, lote, van, kg_saco, sacos_tarima, notificada_fin, notificada_inicio, notificada_completada, notificada_cambio FROM " & rutaBD & ".equipos_objetivo WHERE (equipo = " & captura!maquinaid & " Or equipo = 0) And (parte = " & captura!oee_parte_actual & " Or parte = 0) And (fijo = 'S' OR ('" & Format(fecha, "yyyy/MM/dd") & "' >= desde AND '" & Format(fecha, "yyyy/MM/dd") & "' <= hasta AND (turno = 0 OR turno = " & captura!oee_turno_actual & ") AND (lote = 0 OR lote = " & captura!oee_lote_actual & "))) ORDER BY parte DESC, equipo DESC, fijo, lote DESC, turno DESC LIMIT 1"
+                    general = consultaSEL(cadSQL)
+                    If general.Tables(0).Rows.Count > 0 Then
+                        If ValNull(captura!kg_saco_parte, "A") = "S" And piezas > 0 And general.Tables(0).Rows(0)!kg_saco > 0 Then
+                            piezas = piezas * general.Tables(0).Rows(0)!kg_saco
+                        End If
+                        objetivo = general.Tables(0).Rows(0)!objetivo
+                        van = general.Tables(0).Rows(0)!van + piezas
+                        Dim cadNotificar As String = ""
+                        Dim enviarMensajeOP As Boolean = False
+                        If van >= objetivo And general.Tables(0).Rows(0)!notificada_completada = "N" Then
+                            enviarMensajeOP = True
+                            cadNotificar = ", notificada_completada = 'S'"
+                        End If
+                        If captura!oee_lote_cambio = "S" Then
+                            mensajeOPCambio(captura!oee_lote_actual, captura!oee_lote_anterior)
+                            cadNotificar = cadNotificar & ", notificada_cambio = 'S'"
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_lote_cambio = 'N' WHERE id = " & captura!maquinaid)
+                        End If
+
+                        reinicio = general.Tables(0).Rows(0)!reinicio
+                        Dim tmp As Double = 0
+                        If general.Tables(0).Rows(0)!kg_saco > 0 Then
+
+                            tmp = van / general.Tables(0).Rows(0)!kg_saco
+                            If tmp - Math.Floor(tmp) > 0 Then
+                                tmp = Math.Floor(tmp) + 1
+                            End If
+                            cadTarimas = ", " & tmp
+                            cadTarimas2 = ", sacos = " & tmp
+                        Else
+                            cadTarimas = ", 0"
+                        End If
+                        If general.Tables(0).Rows(0)!sacos_tarima > 0 Then
+                            tmp = tmp / general.Tables(0).Rows(0)!sacos_tarima
+                            If tmp - Math.Floor(tmp) > 0 Then
+
+                                tmp = Math.Floor(tmp) + 1
+                            End If
+                            cadTarimas = cadTarimas & ", " & tmp
+                            cadTarimas2 = cadTarimas2 & ", tarimas = " & tmp
+                        Else
+                            cadTarimas = cadTarimas & ", 0"
+                        End If
+
+                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".equipos_objetivo Set van = van + " & piezas & cadNotificar & " WHERE id = " & general.Tables(0).Rows(0)!id)
+
+
+                        If enviarMensajeOP Then
+                            mensajeOPCompleta(captura!oee_lote_actual)
+                        End If
+
+                    End If
+                    If captura!oee_operador_actual <> 0 And operador = 0 Then
+                        operador = captura!oee_operador_actual
+                    End If
                     'Buscar si ya existe el corte
-                    cadSQL = "SELECT id, paro_actual, bloque_inicia, bloque_finaliza FROM " & rutaBD & ".lecturas_cortes WHERE dia = '" & Format(fecha, "yyyy/MM/dd") & "' AND equipo = " & captura!maquinaid & " AND orden = " & captura!oee_lote_actual & " AND parte = " & captura!oee_parte_actual & " AND turno = " & captura!oee_turno_actual & " AND tc = " & TC & " AND tripulacion = " & captura!oee_tripulacion_actual & " ORDER BY id DESC LIMIT 1"
+                    cadSQL = "SELECT id, paro_actual, bloque_inicia, bloque_finaliza FROM " & rutaBD & ".lecturas_cortes WHERE dia = '" & Format(fecha, "yyyy/MM/dd") & "' AND equipo = " & captura!maquinaid & " AND orden = " & captura!oee_lote_actual & " AND parte = " & captura!oee_parte_actual & " AND turno = " & captura!oee_turno_actual & " AND tc = " & TC & " AND tripulacion = " & captura!oee_tripulacion_actual & " AND operador = " & operador & " ORDER BY id DESC LIMIT 1"
                     Dim miEquipo = consultaSEL(cadSQL)
                     Dim cadParo = ""
                     Dim idCorte = 0
@@ -2632,8 +2797,6 @@ Public Class    XtraForm1
                     End If
                     If existeCorte Then
                         idCorte = miEquipo.Tables(0).Rows(0)!id
-                        'MsgBox("Piezas del sensor " & captura!totals)
-                        'Se busca el turno
                         If captura!totals > 0 Then
                             If captura!tipo = 0 Then
                                 cadAdic = ", produccion = produccion + " & piezas
@@ -2641,124 +2804,331 @@ Public Class    XtraForm1
                                 produccion = piezas
                                 produccion_tc = piezas * TC
                                 produccion_seg = piezas
-                            ElseIf captura!tipo = 1 Or captura!tipo = 4 Then
-                                cadAdic = ", calidad = calidad + " & piezas
-                                cadAdic = cadAdic & ", calidad_tc = calidad_tc + " & piezas * TC
-                                calidad = piezas
-                                calidad_tc = piezas * TC
+                                'ElseIf captura!tipo = 4 Then
+                                '    cadAdic = ", calidad = calidad + " & piezas
+                                '    cadAdic = cadAdic & ", calidad_tc = calidad_tc + " & piezas * TC
+                                '    calidad = piezas
+                                '    calidad_tc = piezas * TC
+                            ElseIf captura!tipo = 1 Then
+                                'cantidadAntes = True
+                                'cadAdic = ", calidad_antes = calidad_antes + " & piezas & ", calidad = calidad + " & piezas & ", produccion = produccion + " & piezas
+                                'cadAdic = cadAdic & ", calidad_tc = calidad_tc + " & piezas * TC & ", produccion_tc = produccion_tc + " & piezas * TC
+                                'calidad = piezas
+                                'calidad_tc = piezas * TC
+                                'produccion = piezas
+                                'produccion_tc = piezas * TC
+                                'produccion_seg = piezas
+                                paroEmergencia = True
                             ElseIf captura!tipo = 2 Then
-                                cadAdic = ", buffer = buffer + " & piezas
-                                buffer = piezas
-                            ElseIf captura!tipo = 3 Then
-
-                                cadSQL = "SELECT fecha, valor FROM " & rutaBD & ".lecturas WHERE sensor = " & captura!id & " AND estatus = 1 ORDER BY id"
-                                Dim regsSensor = consultaSEL(cadSQL)
-                                If regsSensor.Tables(0).Rows.Count > 0 Then
-                                    Dim fechaInicial = miEquipo.Tables(0).Rows(0)!bloque_inicia
-                                    If Not captura!oee_estado_desde.Equals(System.DBNull.Value) Then
-                                        fechaInicial = captura!oee_estado_desde
-                                    End If
-                                    For Each rSensor In regsSensor.Tables(0).Rows
-                                        If rSensor!valor = 2 And ValNull(captura!oee_estado, "A") <> "S" Then
-                                            'Encendido
-                                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'S', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
-                                            funcionando = True
-                                            fechaInicial = rSensor!fecha
-                                        ElseIf rSensor!valor = 1 And ValNull(captura!oee_estado, "A") = "S" Then
-                                            'Apagado
-                                            tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, fechaInicial, rSensor!fecha)
-                                            TTotal = TTotal + tiempoEstado
-                                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'N', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
-                                            funcionando = False
-                                        End If
-                                    Next
-                                    cadAdic = ", produccion = produccion + " & TTotal & ", produccion_tc = produccion_tc + " & TTotal
-                                    produccion_seg = TTotal
-                                End If
+                                'cantidadAntes = True
+                                'cadAdic = ", calidad_antes = calidad_antes + " & piezas & ", calidad = calidad + " & piezas & ", produccion = produccion + " & piezas
+                                'cadAdic = cadAdic & ", calidad_tc = calidad_tc + " & piezas * TC & ", produccion_tc = produccion_tc + " & piezas * TC
+                                'calidad = piezas
+                                'calidad_tc = piezas * TC
+                                'produccion = piezas
+                                'produccion_tc = piezas * TC
+                                'produccion_seg = piezas
+                                paroEmergencia = False
+                                'ElseIf captura!tipo = 2 Then
+                                '    cadAdic = ", buffer = buffer + " & piezas
+                                '    buffer = piezas
+                                'ElseIf captura!tipo = 3 Then
+                                '
+                                '                                cadSQL = "SELECT fecha, valor FROM " & rutaBD & ".lecturas WHERE sensor = " & captura!id & " AND estatus = 1 ORDER BY id"
+                                '                                Dim regsSensor = consultaSEL(cadSQL)
+                                '                                If regsSensor.Tables(0).Rows.Count > 0 Then
+                                '                                Dim fechaInicial = miEquipo.Tables(0).Rows(0)!bloque_inicia
+                                '                                If Not captura!oee_estado_desde.Equals(System.DBNull.Value) Then
+                                '                                fechaInicial = captura!oee_estado_desde
+                                '                            End If
+                                '                                For Each rSensor In regsSensor.Tables(0).Rows
+                                '                                If rSensor!valor = 2 And ValNull(captura!oee_estado, "A") <> "S" Then
+                                '                                'Encendido
+                                '                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'S', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                '                               funcionando = True
+                                '                              fechaInicial = rSensor!fecha
+                                '                         ElseIf rSensor!valor = 1 And ValNull(captura!oee_estado, "A") = "S" Then
+                                '                            'Apagado
+                                '                           tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, fechaInicial, rSensor!fecha)
+                                '                          TTotal = TTotal + tiempoEstado
+                                '                         regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'N', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                '                        funcionando = False
+                                '                   End If
+                                '      Next
+                                '                     cadAdic = ", produccion = produccion + " & TTotal & ", produccion_tc = produccion_tc + " & TTotal
+                                '                    produccion_seg = TTotal
+                                '               End If
                             End If
-                        ElseIf captura!tipo = 3 And TTotal > 0 Then
-                            cadAdic = ", produccion = produccion + " & TTotal & ", produccion_tc = produccion_tc + " & TTotal
-                            produccion_seg = TTotal
+                            '             ElseIf captura!tipo = 3 And TTotal > 0 Then
+                            '                cadAdic = ", produccion = produccion + " & TTotal & ", produccion_tc = produccion_tc + " & TTotal
+                            '               produccion_seg = TTotal
                         End If
 
                         If reporteActual > 0 And AP And tiempoParo > 0 Then
                             tiempoParo = tiempoParo - produccion_tc
+                            tiempoParoCorte = tiempoParoCorte - produccion_tc
                         End If
 
                         cadAdic = cadAdic & ", paro = paro + " & tiempoParo
-                        cadSQL = "UPDATE " & rutaBD & ".lecturas_cortes SET tiempo_disponible = " & tiempoValido(miEquipo.Tables(0).Rows(0)!bloque_inicia, ultimo, captura!maquinaid) & ", bloque_finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "'" & cadAdic & " WHERE id = " & miEquipo.Tables(0).Rows(0)!id & cadParo & ";UPDATE " & rutaBD & ".lecturas_cortes SET paro = tiempo_disponible WHERE paro > tiempo_disponible AND id = " & miEquipo.Tables(0).Rows(0)!id
+                        cadSQL = "UPDATE " & rutaBD & ".lecturas_cortes SET tiempo_disponible = " & tiempoValido(miEquipo.Tables(0).Rows(0)!bloque_inicia, ultimo, captura!proceso) & ", bloque_finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', operador = " & operador & " " & cadAdic & cadTarimas2 & " WHERE id = " & miEquipo.Tables(0).Rows(0)!id & cadParo & ";UPDATE " & rutaBD & ".lecturas_cortes SET paro = tiempo_disponible WHERE paro > tiempo_disponible AND id = " & miEquipo.Tables(0).Rows(0)!id
                     Else
                         'NUEVO LECTURA CORTE
                         'Calcular el corte anterior
 
                         If captura!totals > 0 Then
-                            cadAdic2 = cadAdic2 & ", " & piezas & ", " & piezas * TC
                             If captura!tipo = 0 Then
-
                                 cadAdic = ", produccion, produccion_tc"
+                                cadAdic2 = cadAdic2 & ", " & piezas & ", " & piezas * TC
                                 produccion = piezas
                                 produccion_seg = piezas
                                 produccion_tc = piezas * TC
+                                'ElseIf captura!tipo = 4 Then
+                                '    cadAdic = ", calidad, calidad_tc"
+                                '    cadAdic2 = cadAdic2 & ", " & piezas & ", " & piezas * TC
+                                '    calidad = piezas
+                                '    calidad_tc = piezas * TC
                             ElseIf captura!tipo = 1 Then
-                                cadAdic = ", calidad, calidad_tc"
-                                calidad = piezas
+                                paroEmergencia = True
                             ElseIf captura!tipo = 2 Then
-                                cadAdic = ", buffer"
-                                buffer = piezas
-                            ElseIf captura!tipo = 3 Then
-                                cadSQL = "SELECT fecha, valor FROM " & rutaBD & ".lecturas WHERE sensor = " & captura!id & " AND estatus = 1 ORDER BY id"
-                                Dim regsSensor = consultaSEL(cadSQL)
-                                If regsSensor.Tables(0).Rows.Count > 0 Then
-                                    Dim fechaInicial = ultimo
-                                    If Not captura!oee_estado_desde.Equals(System.DBNull.Value) Then
-                                        fechaInicial = captura!oee_estado_desde
-                                    End If
-                                    For Each rSensor In regsSensor.Tables(0).Rows
-                                        If rSensor!valor = 2 And ValNull(captura!oee_estado, "A") <> "S" Then
-                                            'Encendido
-                                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'S', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
-                                            funcionando = True
-                                            fechaInicial = rSensor!fecha
-                                        ElseIf rSensor!valor = 1 And ValNull(captura!oee_estado, "A") = "S" Then
-                                            'Apagado
-                                            tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, fechaInicial, rSensor!fecha)
-                                            TTotal = TTotal + tiempoEstado
-                                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'N', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
-                                            funcionando = False
-                                        End If
-                                    Next
-                                    cadAdic = ", produccion, produccion_tc"
-                                    cadAdic2 = cadAdic2 & ", " & TTotal & ", " & TTotal
-                                    produccion_seg = TTotal
-                                End If
-                            End If
-                        ElseIf captura!tipo = 3 And TTotal > 0 Then
-                            cadAdic = ", produccion, produccion_tc"
-                            cadAdic2 = cadAdic2 & ", " & TTotal & ", " & TTotal
-                            produccion_seg = TTotal
+                                paroEmergencia = False
+                                'cantidadAntes = True
+                                'cadAdic = ", calidad, calidad_tc, produccion, produccion_tc, calidad_antes, "
+                                'cadAdic2 = cadAdic2 & ", " & piezas & ", " & piezas * TC & ", " & piezas & ", " & piezas * TC & ", " & piezas
+                                'calidad = piezas
+                                'calidad_tc = piezas * TC
+                                'produccion = piezas
+                                'produccion_seg = piezas
+                                'produccion_tc = piezas * TC
 
+                                'ElseIf captura!tipo = 2 Then
+                                '   cadAdic = ", buffer"
+                                '  cadAdic2 = cadAdic2 & ", " & piezas
+                                ' buffer = piezas
+                                'ElseIf captura!tipo = 3 Then
+                                '   cadSQL = "SELECT fecha, valor FROM " & rutaBD & ".lecturas WHERE sensor = " & captura!id & " AND estatus = 1 ORDER BY id"
+                                '  Dim regsSensor = consultaSEL(cadSQL)
+                                ' If regsSensor.Tables(0).Rows.Count > 0 Then
+                                'Dim fechaInicial = ultimo
+                                ' If Not captura!oee_estado_desde.Equals(System.DBNull.Value) Then
+                                ' fechaInicial = captura!oee_estado_desde
+                                ' End If
+                                '     For Each rSensor In regsSensor.Tables(0).Rows
+                                '     If rSensor!valor = 2 And ValNull(captura!oee_estado, "A") <> "S" Then
+                                '    'Encendido
+                                '   regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'S', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                '  funcionando = True
+                                ' fechaInicial = rSensor!fecha
+                                'ElseIf rSensor!valor = 1 And ValNull(captura!oee_estado, "A") = "S" Then
+                                '   'Apagado
+                                '  tiempoEstado = DateAndTime.DateDiff(DateInterval.Second, fechaInicial, rSensor!fecha)
+                                ' TTotal = TTotal + tiempoEstado
+                                'regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_estado = 'N', oee_estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "', oee_estado_cambio = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & captura!maquinaid & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(rSensor!fecha, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                'funcionando = False
+                                'End If
+                                'Next
+                                '               cadAdic = ", produccion, produccion_tc"
+                                '              cadAdic2 = cadAdic2 & ", " & TTotal & ", " & TTotal
+                                '             produccion_seg = TTotal
+                                'End If
+                            End If
+                            'ElseIf captura!tipo = 3 And TTotal > 0 Then
+                            '    cadAdic = ", produccion, produccion_tc"
+                            '    cadAdic2 = cadAdic2 & ", " & TTotal & ", " & TTotal
+                            '    produccion_seg = TTotal
                         End If
 
                         If reporteActual > 0 And AP And tiempoParo > 0 Then
                             tiempoParo = tiempoParo - produccion_tc
+                            tiempoParoCorte = tiempoParoCorte - produccion_tc
                         End If
 
                         If paroActual > 0 Then
                             cadAdic = cadAdic & ", paro"
                             cadAdic2 = cadAdic2 & ", " & tiempoParo
                         End If
-
-                        cadSQL = "INSERT " & rutaBD & ".lecturas_cortes (dia, orden, parte, turno, equipo, tripulacion" & cadAdic & ", bloque_inicia, bloque_finaliza, tc) VALUES ('" & Format(fecha, "yyyy/MM/dd") & "', " & captura!oee_lote_actual & ", " & captura!oee_parte_actual & ", " & captura!oee_turno_actual & ", " & captura!maquinaid & ", " & captura!oee_tripulacion_actual & cadAdic2 & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', " & TC & ")" & cadParo
+                        cadSQL = "INSERT " & rutaBD & ".lecturas_cortes (dia, orden, parte, turno, turno_secuencia, equipo, tripulacion" & cadAdic & ", bloque_inicia, bloque_finaliza, tc, operador, sacos, tarimas) VALUES ('" & Format(fecha, "yyyy/MM/dd") & "', " & captura!oee_lote_actual & ", " & captura!oee_parte_actual & ", " & captura!oee_turno_actual & ", " & miSecuencia & ", " & captura!maquinaid & ", " & captura!oee_tripulacion_actual & cadAdic2 & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', " & TC & ", " & operador & cadTarimas & ")" & cadParo
                     End If
+
                     'Dim primeraVez As Boolean = False
                     regsAfectados = consultaACT(cadSQL)
                     If idCorte = 0 Then
                         cadSQL = "SELECT MAX(id) AS id FROM " & rutaBD & ".lecturas_cortes"
                         general = consultaSEL(cadSQL)
                         If general.Tables(0).Rows.Count > 0 Then
-                            idCorte = general.Tables(0).Rows(0)!id
+                            idCorte = ValNull(general.Tables(0).Rows(0)!id, "N")
                         End If
                     End If
+
+                    cadAdic2 = ""
+
+                    If paroEmergencia And captura!pieza = "S" And piezas > 0 And captura!tipo = 0 Then
+                        paroEmergencia = False
+                    End If
+
+                    If paroEmergencia And captura!paro_emergencia = "N" Or Not paroEmergencia And captura!paro_emergencia = "S" Then
+                        Dim cadEmergencia = ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid
+                        If Not paroEmergencia Then salioEmergencia = True
+                        If paroEmergencia Then
+                            cadEmergencia = ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid
+                        End If
+                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET paro_emergencia = '" & IIf(paroEmergencia, "S", "N") & "' WHERE id = " & captura!maquinaid & cadEmergencia)
+                        'Enviar mensaje de paro de emergencia
+                        mensajeEmergencia(paroEmergencia)
+                    End If
+
+                    'Buscar estimados
+                    Dim EFI As Double = 100, OEE As Double = 85, FTQ As Double = 100, DIS As Double = 100
+                    Dim eEFI As Double = 100, eOEE As Double = 85, eFTQ As Double = 100, eDIS As Double = 100
+                    cadSQL = "Select * FROM " & rutaBD & ".estimados WHERE (linea = " & captura!linea & " Or linea = 0) And (equipo = " & captura!maquinaid & " Or equipo = 0) And (fijo = 'S' OR ('" & Format(fecha, "yyyy/MM/dd") & "' >= desde AND '" & Format(fecha, "yyyy/MM/dd") & "' <= hasta )) ORDER BY equipo DESC, linea DESC, fijo, desde LIMIT 1"
+                    general = consultaSEL(cadSQL)
+                    If general.Tables(0).Rows.Count > 0 Then
+                        eOEE = general.Tables(0).Rows(0)!oee
+                        eEFI = general.Tables(0).Rows(0)!efi
+                        eFTQ = general.Tables(0).Rows(0)!ftq
+                        eDIS = general.Tables(0).Rows(0)!dis
+                    End If
+
+
+
+                    Dim produccion_solo As Double = produccion
+                    Dim produccion_tc_solo As Double = produccion_tc
+                    Dim calidad_solo As Double = calidad
+                    Dim calidad_tc_solo As Double = calidad_tc
+
+
+                    cadSQL = "Select tc, lote, parte, turno, id, dia, desde, tiempo, buenas, malas, disponible, buenas_vienen, malas_vienen, diferencia_vienen, plan FROM " & rutaBD & ".horaxhora WHERE dia = '" & Format(ultimo, "yyyy/MM/dd") & "' AND hora = " & Format(ultimo, "HH") & " AND estatus = 'A' AND equipo = " & captura!maquinaid & " ORDER BY id DESC"
+                    Dim hxh = consultaSEL(cadSQL)
+                    Dim laHora = Format(ultimo, "HH")
+                    Dim cadHXH = ""
+                    Dim vienenMalas = 0
+                    Dim vienenBuenas = 0
+                    Dim arrastre = 0
+                    Dim totalVienen = 0
+                    Dim estHXH = 0
+                    Dim cadAdicCorte As String = ""
+                    Dim crearNuevo = False
+                    Dim tipoCorte As Integer = 0
+                    Dim fechaFin = ultimo
+                    Dim fechaIni = DateAdd(DateInterval.Second, 1, ultimo)
+                    If hxh.Tables(0).Rows.Count = 0 Then
+                        crearNuevo = True
+                    ElseIf hxh.Tables(0).Rows(0)!lote <> captura!oee_lote_actual Or hxh.Tables(0).Rows(0)!parte <> captura!oee_parte_actual Or hxh.Tables(0).Rows(0)!tc <> TC Then
+
+                        If hxh.Tables(0).Rows(0)!tc <> TC Then
+                            tipoCorte = 5
+                        ElseIf hxh.Tables(0).Rows(0)!parte <> captura!oee_parte_actual Then
+                            tipoCorte = 3
+
+                        ElseIf hxh.Tables(0).Rows(0)!lote <> captura!oee_lote_actual Then
+                            tipoCorte = 4
+                        End If
+
+                        crearNuevo = True
+                    Else
+                        If hxh.Tables(0).Rows(0)!id <> captura!ultima_hora Then
+                            'Se buscan los pendientes
+                            If captura!ultima_hora > 0 Then
+                                cadSQL = "Select dia, hora, hasta, malas, buenas, plan, malas_vienen, buenas_vienen, plan_van, diferencia_vienen FROM " & rutaBD & ".horaxhora WHERE id = " & captura!ultima_hora
+                                general = consultaSEL(cadSQL)
+                                If general.Tables(0).Rows.Count > 0 Then
+                                    vienenMalas = general.Tables(0).Rows(0)!malas + general.Tables(0).Rows(0)!malas_vienen
+                                    vienenBuenas = general.Tables(0).Rows(0)!buenas + general.Tables(0).Rows(0)!buenas_vienen
+                                    totalVienen = (general.Tables(0).Rows(0)!buenas + general.Tables(0).Rows(0)!malas) - general.Tables(0).Rows(0)!plan + +general.Tables(0).Rows(0)!diferencia_vienen
+                                    cadAdicCorte = ", buenas_vienen = " & vienenBuenas & ", malas_vienen = " & vienenMalas & ", diferencia_vienen = " & totalVienen
+                                    cadHXH = cadHXH & ";UPDATE " & rutaBD & ".horaxhora SET estatus = 'Z' WHERE id = " & captura!ultima_hora
+                                End If
+
+                            End If
+                            cadHXH = cadHXH & ";UPDATE " & rutaBD & ".cat_maquinas SET ultima_hora = " & hxh.Tables(0).Rows(0)!id & " WHERE id = " & captura!maquinaid
+                        End If
+                        Dim horaDesde = Convert.ToDateTime(Format(hxh.Tables(0).Rows(0)!dia, "yyyy/MM/dd") & " " & hxh.Tables(0).Rows(0)!desde)
+                        If paroCorte < horaDesde And horaDesde <> ultimo And tiempoParoCorte > 0 Then
+                            tiempoParoCorte = tiempoValido(horaDesde, ultimo, captura!proceso)
+                        End If
+                        Dim proyectado = 0
+                        If hxh.Tables(0).Rows(0)!disponible > 0 Then
+                            proyectado = Math.Round(hxh.Tables(0).Rows(0)!tiempo * hxh.Tables(0).Rows(0)!plan / hxh.Tables(0).Rows(0)!disponible, 0)
+                        End If
+                        arrastre = (hxh.Tables(0).Rows(0)!buenas + hxh.Tables(0).Rows(0)!malas) - proyectado
+                        Dim tiempoECorte = tiempoValido(horaDesde, ultimo, captura!proceso)
+                        cadHXH = cadHXH & ";UPDATE " & rutaBD & ".horaxhora SET buffer = buffer + " & buffer & ", buenas = buenas + " & produccion_solo & ", malas = malas + " & calidad_solo & ", buenas_tc = buenas_tc + " & produccion_tc_solo & ", malas_tc = malas_tc + " & calidad_tc_solo & ", paro = " & tiempoParoCorte & ", tiempo = " & tiempoECorte & ", tocada = 1, secuencia = " & miSecuencia & ", turno = " & config.Tables(0).Rows(0)!turno_oee & ", arrastre = " & arrastre & cadAdicCorte & ", tripulacion_inicial = " & captura!oee_tripulacion_actual & ", operador_inicial = " & operador & " WHERE id = " & hxh.Tables(0).Rows(0)!id
+                    End If
+                    Dim reCompaginar = False
+                    Dim planSumado = van
+                    Dim nuevoPlan = 0, nvoPlan_van = van
+
+                    If crearNuevo Then
+                        If captura!ultima_hora > 0 Then
+                            cadSQL = "Select dia, hora, desde, disponible, plan_van, mantto, hasta, malas, buenas, plan, malas_vienen, buenas_vienen, diferencia_vienen FROM " & rutaBD & ".horaxhora WHERE id = " & captura!ultima_hora
+                            general = consultaSEL(cadSQL)
+                            If general.Tables(0).Rows.Count > 0 Then
+                                vienenMalas = general.Tables(0).Rows(0)!malas + general.Tables(0).Rows(0)!malas_vienen
+                                vienenBuenas = general.Tables(0).Rows(0)!buenas + general.Tables(0).Rows(0)!buenas_vienen
+                                totalVienen = (general.Tables(0).Rows(0)!buenas + general.Tables(0).Rows(0)!malas) - general.Tables(0).Rows(0)!plan + +general.Tables(0).Rows(0)!diferencia_vienen
+                                cadAdicCorte = ", buenas_vienen = " & vienenBuenas & ", malas_vienen = " & vienenMalas & ", diferencia_vienen = " & totalVienen
+                                If general.Tables(0).Rows(0)!hasta <> Format(fechaFin, "HH:mm:ss") And tipoCorte > 0 Then
+                                    calcularTiempos(Convert.ToDateTime(Format(general.Tables(0).Rows(0)!dia, "yyyy/MM/dd") & " " & general.Tables(0).Rows(0)!desde), ultimo, captura!proceso, captura!maquinaid)
+                                    If objetivo - van > 0 Then
+                                        reCompaginar = True
+
+                                    End If
+                                    If general.Tables(0).Rows(0)!disponible - general.Tables(0).Rows(0)!mantto > 0 Then
+                                        nuevoPlan = (tDisponible - tMantto) * general.Tables(0).Rows(0)!plan / (general.Tables(0).Rows(0)!disponible - general.Tables(0).Rows(0)!mantto)
+                                        nvoPlan_van = general.Tables(0).Rows(0)!plan_van - general.Tables(0).Rows(0)!plan + nuevoPlan
+                                    End If
+                                    cadHXH = cadHXH & ";UPDATE " & rutaBD & ".horaxhora SET estatus = 'Z', hasta = '" & Format(fechaFin, "HH:mm:ss") & "'" & IIf(tipoCorte > 0, ", ruptura = " & tipoCorte, "") & ", disponible = " & tDisponible & ", mantto = " & tMantto & ", plan = " & nuevoPlan & ", plan_van = " & nvoPlan_van & " WHERE id = " & captura!ultima_hora
+                                Else
+                                    cadHXH = cadHXH & ";UPDATE " & rutaBD & ".horaxhora SET estatus = 'Z', hasta = '" & Format(fechaFin, "HH:mm:ss") & "'" & IIf(tipoCorte > 0, ", ruptura = " & tipoCorte, "") & " WHERE id = " & captura!ultima_hora
+                                End If
+                            End If
+
+                        End If
+
+                        calcularTiempos(fechaIni, Convert.ToDateTime(Format(fechaIni, "yyyy/MM/dd HH") & ":59:59"), captura!proceso, captura!maquinaid)
+                        Dim miPlan = 0
+                        If (tDisponible - tMantto) > TC Then
+                            miPlan = Math.Round((tDisponible - tMantto) / TC, 0)
+                        End If
+                        cadHXH = cadHXH & ";INSERT INTO " & rutaBD & ".horaxhora (equipo, dia, hora, desde, hasta, buffer, buenas, malas, buenas_tc, malas_tc, lote, parte, disponible, mantto, tocada, secuencia, turno, buenas_vienen, malas_vienen, diferencia_vienen, tripulacion_inicial, operador_inicial, plan, plan_van, tipo, TC, ruptura) VALUES (" & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', " & laHora & ", '" & Format(fechaIni, "HH:mm:ss") & "', '" & laHora & ":59:59', " & buffer & ", " & produccion_solo & ", " & calidad_solo & ", " & produccion_tc_solo & ", " & calidad_tc_solo & ", " & captura!oee_lote_actual & ", " & captura!oee_parte_actual & "," & tDisponible & ", " & tMantto & ", 1, " & miSecuencia & ", " & config.Tables(0).Rows(0)!turno_oee & ", " & vienenBuenas & ", " & vienenMalas & ", " & totalVienen & ", " & captura!oee_tripulacion_actual & ", " & operador & ", " & miPlan & ", " & miPlan + nvoPlan_van & ", 1, " & TC & ", " & tipoCorte & ");UPDATE " & rutaBD & ".horaxhora SET estatus = 'Z', tocada = 1 WHERE (dia = '" & Format(ultimo, "yyyy/MM/dd") & "' AND hora < " & Format(ultimo, " HH") & " OR dia < '" & Format(fecha, "yyyy/MM/dd") & "') AND equipo = " & captura!maquinaid & " AND lote = " & captura!oee_lote_actual & " AND estatus = 'A'"
+                        'Se buscan los pendientes
+                        planSumado = miPlan + nvoPlan_van
+                    End If
+                    regsAfectados = consultaACT(cadHXH)
+                    If crearNuevo Then
+                        cadSQL = "Select MAX(id) As id FROM " & rutaBD & ".horaxhora WHERE equipo = " & captura!maquinaid & " And estatus = 'A' "
+                        general = consultaSEL(cadSQL)
+                        If general.Tables(0).Rows.Count > 0 Then
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET ultima_hora = " & general.Tables(0).Rows(0)!id & " WHERE id = " & captura!maquinaid)
+                        End If
+                    End If
+                    If reCompaginar Then
+                        fechaFin = DateAdd(DateInterval.Second, 1, Convert.ToDateTime(Format(fechaIni, "yyyy/MM/dd HH") & ":59:59"))
+                        crearProgramacion(captura!maquinaid, captura!oee_lote_actual, captura!oee_parte_actual, fechaFin, captura!proceso, objetivo, planSumado)
+                    End If
+
+                    If captura!paro_emergencia = "N" And paroEmergencia Then
+                        If paroActual > 0 Then
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & paroActual)
+                            If regsAfectados > 0 Then
+                                paroActual = 0
+                                reporteActual = 0
+                            End If
+                        End If
+
+                        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, reporte, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus, area, tipo) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & traduccion(187) & "', 8, 0, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', 0, 1, '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A', 0, 0)")
+                        paroCreado = regsAfectados > 0
+                    ElseIf salioEmergencia And paroActual > 0 Then
+                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & paroActual)
+                        If regsAfectados > 0 Then
+                            paroActual = 0
+                            reporteActual = 0
+                            claseParoActual = 0
+                            finaliza_sensor = False
+                            piezasWIP = 0
+                        End If
+                    End If
+
+
                     If equipoActual <> captura!maquinaid Or equipoActual = 0 Then
                         equipoActual = captura!maquinaid
                         '    primeraVez = True
@@ -2770,36 +3140,13 @@ Public Class    XtraForm1
                             cadSQL = "SELECT id FROM " & rutaBD & ".detallerechazos WHERE equipo = " & captura!maquinaid & " AND parte = " & captura!oee_parte_actual & " AND fecha = '" & Format(fecha, "yyyy/MM/dd") & "' AND turno " & captura!oee_turno_actual & " AND area = " & captura!area_sensor & " AND tipo = " & captura!clasificacion_sensor & " AND (lote = 0 OR lote = " & captura!oee_lote_actual & ") AND origen = 0 AND estatus = 'A' ORDER BY id DESC LIMIT 1"
                             general = consultaSEL(cadSQL)
                             If general.Tables(0).Rows.Count > 0 Then
-                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".detallerechazos SET cantidad = cantidad + " & calidad & ", cantidad_tc = cantidad_tc + " & calidad_tc & " WHERE id = " & general.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".lecturas_cortes SET calidad_clasificada = calidad_clasificada + " & calidad & " WHERE id = " & idCorte)
+                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".detallerechazos SET cantidad = cantidad + " & calidad & ", cantidad_tc = cantidad_tc + " & calidad_tc & IIf(cantidadAntes, ", cantidad_antes = cantidad_antes + " & calidad, "") & " WHERE id = " & general.Tables(0).Rows(0)!id & ";UPDATE " & rutaBD & ".lecturas_cortes SET calidad_clasificada = calidad_clasificada + " & calidad & " WHERE id = " & idCorte)
                             Else
-                                regsAfectados = consultaACT("INSERT " & rutaBD & ".detallerechazos (rechazo, tipo, area, equipo, fecha, turno, origen, corte, notas, parte, lote, cantidad, cantidad_tc, usuario, actualizacion) VALUES('RECHAZO DESDE EL SENSOR EL " & captura!id & ", " & captura!clasificacion_sensor & ", " & captura!area_sensor & ", " & captura!maquinaid & ", '" & Format(fecha, "yyyy/MM/dd") & "', " & captura!oee_turno_actual & ", 1, " & idCorte & ", 'Este registro de rechazo se generó de forma automática desde el sensor " & captura!id & " que está asociado a este equipo', " & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & calidad & ", " & calidad_tc & ", 1, NOW());UPDATE " & rutaBD & ".lecturas_cortes SET calidad_clasificada = calidad_clasificada + " & calidad & " WHERE id = " & idCorte)
+                                regsAfectados = consultaACT("INSERT " & rutaBD & ".detallerechazos (rechazo, tipo, area, equipo, fecha, turno, origen, corte, notas, parte, lote, cantidad, cantidad_tc, usuario, actualizacion, cantidad_antes) VALUES('" & traduccion(72) & captura!id & ", " & captura!clasificacion_sensor & ", " & captura!area_sensor & ", " & captura!maquinaid & ", '" & Format(fecha, "yyyy/MM/dd") & "', " & captura!oee_turno_actual & ", 1, " & idCorte & ", '" & traduccion(73).Replace("campo_0", captura!id) & "', " & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & calidad & ", " & calidad_tc & ", 1, NOW(), " & IIf(cantidadAntes, calidad, 0) & ");UPDATE " & rutaBD & ".lecturas_cortes SET calidad_clasificada = calidad_clasificada + " & calidad & " WHERE id = " & idCorte)
                             End If
                         End If
                         cadSQLParo = ""
                         cadAdic = ""
-                        cadAdic2 = ""
-                        'Buscar objetivo
-                        Dim objetivo As Double = 0
-                        Dim reinicio As Long = 0
-                        cadSQL = "Select objetivo, reinicio FROM " & rutaBD & ".equipos_objetivo WHERE (equipo = " & captura!maquinaid & " Or equipo = 0) And (parte = " & captura!oee_parte_actual & " Or parte = 0) And (fijo = 'S' OR ('" & Format(fecha, "yyyy/MM/dd") & "' >= desde AND '" & Format(fecha, "yyyy/MM/dd") & "' <= hasta AND (turno = 0 OR turno = " & captura!oee_turno_actual & ") AND (lote = 0 OR lote = " & captura!oee_lote_actual & "))) ORDER BY parte DESC, equipo DESC, fijo, lote DESC, turno DESC LIMIT 1"
-                        general = consultaSEL(cadSQL)
-                        If general.Tables(0).Rows.Count > 0 Then
-                            objetivo = general.Tables(0).Rows(0)!objetivo
-                            reinicio = general.Tables(0).Rows(0)!reinicio
-                        End If
-
-                        'Buscar estimados
-                        Dim EFI As Double = 100, OEE As Double = 85, FTQ As Double = 100, DIS As Double = 100
-                        Dim eEFI As Double = 100, eOEE As Double = 85, eFTQ As Double = 100, eDIS As Double = 100
-                        cadSQL = "SELECT * FROM " & rutaBD & ".estimados WHERE (linea = " & captura!linea & " OR linea = 0) AND (equipo = " & captura!maquinaid & " OR equipo = 0) AND (fijo = 'S' OR ('" & Format(fecha, "yyyy/MM/dd") & "' >= desde AND '" & Format(fecha, "yyyy/MM/dd") & "' <= hasta )) ORDER BY equipo DESC, linea DESC, fijo, desde LIMIT 1"
-                        general = consultaSEL(cadSQL)
-                        If general.Tables(0).Rows.Count > 0 Then
-                            eOEE = general.Tables(0).Rows(0)!oee
-                            eEFI = general.Tables(0).Rows(0)!efi
-                            eFTQ = general.Tables(0).Rows(0)!ftq
-                            eDIS = general.Tables(0).Rows(0)!dis
-                        End If
-
                         Dim rateActual As Double = 0
                         Dim ultimaProduccion = ultimo
                         Dim ultimaReparacion = ultimo
@@ -2829,7 +3176,7 @@ Public Class    XtraForm1
 
                         If Not miResumen.Tables(0).Rows(0)!fecha_desde.Equals(System.DBNull.Value) Then
                             corteAPP = miResumen.Tables(0).Rows(0)!fecha_desde
-                            tiempoTranscurrido = tiempoValido(miResumen.Tables(0).Rows(0)!fecha_desde, ultimo, captura!maquinaid)
+                            tiempoTranscurrido = tiempoValido(miResumen.Tables(0).Rows(0)!fecha_desde, ultimo, captura!proceso)
                         Else
                             cadAdic = cadAdic & ", fecha_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "'"
                         End If
@@ -2853,7 +3200,7 @@ Public Class    XtraForm1
                                 corteAPP = cortePT
                                 'No se busca en la BD
                             End If
-                        ElseIf captura!oee_historico_rate = 1 Then  
+                        ElseIf captura!oee_historico_rate = 1 Then
                             horasAtras = -1
                         ElseIf captura!oee_historico_rate = 2 Then
                             horasAtras = -2
@@ -2883,8 +3230,7 @@ Public Class    XtraForm1
                             minutosRate = DateAndTime.DateDiff(DateInterval.Minute, cortePT, ultimo)
                             If minutosRate = 0 Then minutosRate = 1
                         End If
-                        tiempoTranscurridoRate = tiempoValido(corteAPP, ultimo, captura!maquinaid)
-                        ''MsgBox("entro 12 ")
+                        tiempoTranscurridoRate = tiempoValido(corteAPP, ultimo, captura!proceso)
 
                         Dim disponibilidad = tiempoTranscurrido - miResumen.Tables(0).Rows(0)!parosmostrar
                         Dim disponibilidadRate = tiempoTranscurridoRate 'No se restan los paros del período - paroRate
@@ -2913,22 +3259,27 @@ Public Class    XtraForm1
                         If miResumen.Tables(0).Rows(0)!produccion = produccion And paroActual > 0 Then
                             'rateActual = miResumen.Tables(0).Rows(0)!rate
                         End If
-
                         uRate = rateActual
 
-                        cadAdic = cadAdic & ", fuera_programa = '" & IIf(miResumen.Tables(0).Rows(0)!transcurrido = tiempoTranscurrido And miResumen.Tables(0).Rows(0)!transcurrido_pasar = 1, "S", "N") & "'"
-                        If miResumen.Tables(0).Rows(0)!produccion < produccion Then
-                            cadAdic = cadAdic & ", ultima_produccion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', alarmado_manual = 'N'"
+                        Dim fueraHorario = "N"
+
+                        fueraHorario = IIf(miResumen.Tables(0).Rows(0)!transcurrido = tiempoTranscurrido And miResumen.Tables(0).Rows(0)!transcurrido_pasar = 1, "S", "N")
+                        'cadAdic = cadAdic & ", fuera_programa = '" & fueraHorario & "'"
+                        If miResumen.Tables(0).Rows(0)!produccion < produccion Or fueraHorario = "S" Then
+                            cadAdic = cadAdic & ", ultima_produccion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "',  alarmado_manual = 'N'"
                             ultimaProduccion = ultimo
-                            conProduccion = True
+                            ultimaReparacion = ultimo
+                            conProduccion = miResumen.Tables(0).Rows(0)!produccion < produccion
                         End If
                         buffer = miResumen.Tables(0).Rows(0)!buffer + buffer
                         If miResumen.Tables(0).Rows(0)!buffer < buffer Then
                             cadAdic = cadAdic & ", ultima_buffer = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "'"
                             ultimaProduccion = ultimo
+                            ultimaReparacion = ultimo
                             conProduccion = True
                         End If
-                        Dim paroCreado = paroActual > 0
+
+                        paroCreado = paroActual > 0
                         If (paroActual = 0 Or claseParoActual <> 0) And reporteActual = 0 Then
                             cadSQL = "SELECT a.id, a.fecha, a.area, b.nombre, b.agrupador_2 FROM " & rutaBD & ".reportes a LEFT JOIN " & rutaBD & ".cat_fallas b ON a.falla = b.id WHERE a.maquina = " & captura!maquinaid & " AND a.estatus <= 10 AND a.afecta_oee = 'S' ORDER BY a.id LIMIT 1"
                             general = consultaSEL(cadSQL)
@@ -2936,7 +3287,7 @@ Public Class    XtraForm1
 
                                 'Se finaliza algun paro clase 1 o 2
                                 If paroActual > 0 Then
-                                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!maquinaid) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & paroActual)
+                                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finalizo = 1, finalizo_accion = 'O' WHERE id = " & paroActual)
                                     If regsAfectados > 0 Then
                                         paroActual = 0
                                         reporteActual = 0
@@ -2956,25 +3307,25 @@ Public Class    XtraForm1
 
                         If captura!oee_umbral_produccion > 0 And captura!oee_umbral_produccion <= DateAndTime.DateDiff(DateInterval.Second, ultimaReparacion, ultimo) And Not paroCreado Then
 
-                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", 'NO SE DETECTAN DE PIEZAS', 1, " & captura!maquinaid & ", '" & Format(fecha, "yyyy/MM/dd") & "', 0, 1, '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A');UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & traduccion(74) & "', 1, " & captura!maquinaid & ", '" & Format(fecha, "yyyy/MM/dd") & "', 0, 1, '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A');UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
                         End If
 
                         If captura!oee_umbral_produccion > 0 And conProduccion And claseParoActual = 1 Then
 
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!maquinaid) & ", finalizo = 1, hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & paroActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finalizo = 1, hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & paroActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
                         End If
 
                         If finaliza_sensor And paroActual > 0 And conProduccion Then
                             If (piezasWIP - produccion) <= 0 Then
-                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET wip_van = " & produccion & ", estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!maquinaid) & ", finalizo = 1 WHERE id = " & paroActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET wip_paro = 'N', wip_contador = 0, wip_tiempo = 0, estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET wip_van = " & produccion & ", estado = 'F', finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finalizo = 1 WHERE id = " & paroActual & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET wip_paro = 'N', wip_contador = 0, wip_tiempo = 0, estatus = 'F', parada_desde = NULL, estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
                             Else
                                 regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET wip_van = " & produccion & " WHERE id = " & paroActual)
                             End If
 
                         End If
 
-                        cadSQL = "SELECT id FROM " & rutaBD & ".detalleparos WHERE maquina = " & captura!maquinaid & " And desde > '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' AND estatus = 'A' AND estado = 'L' ORDER BY inicia LIMIT 1"
-                                general = consultaSEL(cadSQL)
+                        cadSQL = "SELECT id FROM " & rutaBD & ".detalleparos WHERE maquina = " & captura!maquinaid & " AND TIME_TO_SEC(TIMEDIFF(desde, NOW())) BETWEEN 0 AND 1800 AND estatus = 'A' AND estado = 'L' ORDER BY desde LIMIT 1"
+                        general = consultaSEL(cadSQL)
                         If general.Tables(0).Rows.Count > 0 Then
                             cadAdic = cadAdic & ", proximo_paro = " & general.Tables(0).Rows(0)!id
                         Else
@@ -3064,7 +3415,6 @@ Public Class    XtraForm1
                         DIS = Math.Round(DIS, 3)
                         FTQ = Math.Round(FTQ, 3)
 
-                        'MsgBox("OEE " & OEE)
 
                         Dim cadFechaFTQ = ", ftq_tendencia_baja = NULL"
                         If FTQ <= miResumen.Tables(0).Rows(0)!ftq And miResumen.Tables(0).Rows(0)!ftq <> 100 Then
@@ -3074,8 +3424,6 @@ Public Class    XtraForm1
                                 cadFechaFTQ = ""
                             End If
                         End If
-
-
 
                         Dim cadFechaDIS = ", dis_tendencia_baja = NULL"
                         If DIS <= miResumen.Tables(0).Rows(0)!dis And miResumen.Tables(0).Rows(0)!dis <> 100 Then
@@ -3108,8 +3456,6 @@ Public Class    XtraForm1
                             End If
                         End If
 
-
-
                         Dim cadOEE = ", oee_imagen = 0"
                         If OEE < miResumen.Tables(0).Rows(0)!oee And miResumen.Tables(0).Rows(0)!oee <> 0 Then
                             cadOEE = ", oee_imagen = 2, oee_efecto = 'B'"
@@ -3125,7 +3471,6 @@ Public Class    XtraForm1
                             cadOEE = cadOEE & ", efi_imagen = 0"
                         End If
 
-
                         If DIS < miResumen.Tables(0).Rows(0)!dis And miResumen.Tables(0).Rows(0)!dis <> 0 Then
                             cadOEE = cadOEE & ", dis_imagen = 2, dis_efecto = 'B'"
                         ElseIf DIS > miResumen.Tables(0).Rows(0)!dis And miResumen.Tables(0).Rows(0)!dis <> 0 Then
@@ -3133,7 +3478,6 @@ Public Class    XtraForm1
                         Else
                             cadOEE = cadOEE & ", dis_imagen = 0"
                         End If
-
 
                         If FTQ < miResumen.Tables(0).Rows(0)!ftq And miResumen.Tables(0).Rows(0)!ftq <> 0 Then
                             cadOEE = cadOEE & ", ftq_imagen = 2, ftq_efecto = 'B'"
@@ -3143,18 +3487,25 @@ Public Class    XtraForm1
                             cadOEE = cadOEE & ", ftq_imagen = 0"
                         End If
 
+                        'Antes
+
                         Dim cadAdicDetener = ""
                         If miResumen.Tables(0).Rows(0)!detener > 0 And paroActual = 0 Then
+                            If ValNull(miResumen.Tables(0).Rows(0)!detener_estimado, "N") = 0 Then
+                                regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus, notas, finaliza_sensor, tipo, area) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & ValNull(miResumen.Tables(0).Rows(0)!detener_paro, "A") & "', 2, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', 0, " & miResumen.Tables(0).Rows(0)!detener & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_notas, "A") & "', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_piezas, "A") & "', " & ValNull(miResumen.Tables(0).Rows(0)!detener_tipo, "N") & ", " & ValNull(miResumen.Tables(0).Rows(0)!detener_area, "N") & ");UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                cadAdicDetener = ", reanudar = 0, detener = 0, detener_piezas = 'N', detener_notas = NULL, detener_estimado = 0, detener_area = 0, detener_tipo = 0, detener_paro = NULL "
+                            Else
 
-                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus, notas, finaliza_sensor, tipo, area) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & ValNull(miResumen.Tables(0).Rows(0)!detener_paro, "A") & "', 2, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', " & ValNull(miResumen.Tables(0).Rows(0)!detener_estimado, "N") & ", " & miResumen.Tables(0).Rows(0)!detener & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_notas, "A") & "', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_piezas, "A") & "', " & ValNull(miResumen.Tables(0).Rows(0)!detener_tipo, "N") & ", " & ValNull(miResumen.Tables(0).Rows(0)!detener_area, "N") & ");UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
-                            cadAdicDetener = ", reanudar = 0, detener = 0, detener_piezas = 'N', detener_notas = NULL, detener_estimado = 0, detener_area = 0, detener_tipo = 0, detener_paro = NULL "
+                                regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, estado, estatus, notas, finaliza_sensor, tipo, area) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & ValNull(miResumen.Tables(0).Rows(0)!detener_paro, "A") & "', 2, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', " & ValNull(miResumen.Tables(0).Rows(0)!detener_estimado, "N") & ", " & miResumen.Tables(0).Rows(0)!detener & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', 'C', 'A', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_notas, "A") & "', '" & ValNull(miResumen.Tables(0).Rows(0)!detener_piezas, "A") & "', " & ValNull(miResumen.Tables(0).Rows(0)!detener_tipo, "N") & ", " & ValNull(miResumen.Tables(0).Rows(0)!detener_area, "N") & ");UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                                cadAdicDetener = ", reanudar = 0, detener = 0, detener_piezas = 'N', detener_notas = NULL, detener_estimado = 0, detener_area = 0, detener_tipo = 0, detener_paro = NULL "
+                            End If
                         ElseIf miResumen.Tables(0).Rows(0)!reanudar > 0 And paroActual > 0 Then
+                            tiempoParoCorte = tiempoValido(paroCorte, ultimo, captura!proceso)
+                            tiempoParo = tiempoParo + tiempoParoCorte
 
-                            tiempoParo = tiempoParo + tiempoValido(paroCorte, ultimo, captura!maquinaid)
-
-                            Dim cadDatos = "UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & tiempoValido(paroDesde, ultimo, captura!maquinaid) & ", finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tipo = " & ValNull(miResumen.Tables(0).Rows(0)!detener_tipo, "N") & ", notas = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_notas, "A") & "', area = " & ValNull(miResumen.Tables(0).Rows(0)!detener_area, "N") & ", paro = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_paro, "A") & "', resultados = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_resultados, "A") & "', finalizo_accion = 'M' WHERE id = " & miResumen.Tables(0).Rows(0)!paro_actual
-                            If claseParoActual <> 2 Then
-                                cadDatos = "UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & tiempoValido(paroDesde, ultimo, captura!maquinaid) & ", finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', finalizo_accion = 'M' WHERE id = " & miResumen.Tables(0).Rows(0)!paro_actual
+                            Dim cadDatos = "UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', tipo = " & ValNull(miResumen.Tables(0).Rows(0)!detener_tipo, "N") & ", notas = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_notas, "A") & "', area = " & ValNull(miResumen.Tables(0).Rows(0)!detener_area, "N") & ", paro = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_paro, "A") & "', resultados = '" & ValNull(miResumen.Tables(0).Rows(0)!detener_resultados, "A") & "', finalizo_accion = 'M' WHERE id = " & miResumen.Tables(0).Rows(0)!paro_actual
+                            If claseParoActual <> 2 And claseParoActual <> 1 Then
+                                cadDatos = "UPDATE " & rutaBD & ".detalleparos SET estado = 'F', tiempo = " & tiempoValido(paroDesde, ultimo, captura!proceso) & ", finaliza = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', finalizo_accion = 'M' WHERE id = " & miResumen.Tables(0).Rows(0)!paro_actual
                             End If
 
                             regsAfectados = consultaACT(cadDatos & ";UPDATE " & rutaBD & ".detalleparos SET hasta = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & miResumen.Tables(0).Rows(0)!paro_actual & " AND clase <> 0;UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'F', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', alarmado_manual = 'N', ultima_reparacion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
@@ -3169,11 +3520,11 @@ Public Class    XtraForm1
 
 
                         If captura!paro_wip = "S" And miResumen.Tables(0).Rows(0)!wip_paro = "S" Then
-                            agregarSolo("Se creó el paro planeado por change over")
-                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, hasta, estado, estatus, notas, finaliza_sensor, tipo, area, wip_piezas) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", 'PARO PLANEADO POR CHANGE OVER', 0, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', " & ValNull(miResumen.Tables(0).Rows(0)!wip_tiempo, "N") & ", 1, '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(DateAndTime.DateAdd(DateInterval.Second, miResumen.Tables(0).Rows(0)!wip_tiempo, ultimo), "yyyy/MM/dd HH:mm:ss") & "', 'L', 'A', 'Este paro se genera desde la aplicación de WIP al haber un sólo lote en el equipo', '" & IIf(miResumen.Tables(0).Rows(0)!wip_contador > 0, "S", "N") & "', " & tipo_change & ", " & area_change & ", " & miResumen.Tables(0).Rows(0)!wip_contador & ");UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET wip_paro = 'Y', estatus = 'D', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, hasta, estado, estatus, notas, finaliza_sensor, tipo, area, wip_piezas) VALUES (" & captura!oee_parte_actual & ", " & captura!oee_lote_actual & ", " & config.Tables(0).Rows(0)!turno_oee & ", '" & traduccion(75) & "', 0, " & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd") & "', " & ValNull(miResumen.Tables(0).Rows(0)!wip_tiempo, "N") & ", 1, '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', '" & Format(DateAndTime.DateAdd(DateInterval.Second, miResumen.Tables(0).Rows(0)!wip_tiempo, ultimo), "yyyy/MM/dd HH:mm:ss") & "', 'L', 'A', '" & traduccion(76) & "', '" & IIf(miResumen.Tables(0).Rows(0)!wip_contador > 0, "S", "N") & "', " & tipo_change & ", " & area_change & ", " & miResumen.Tables(0).Rows(0)!wip_contador & ");UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET wip_paro = 'Y', estatus = 'D', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE equipo = " & captura!maquinaid)
 
                         End If
 
+                        '
 
                         cadAdic = cadAdic & cadFecha & cadFechaBaja & cadFechaAlta & cadFechaFTQ & cadFechaDIS & cadFechaEFI & cadFechaOEE & cadOEE & cadAdicDetener
 
@@ -3207,18 +3558,17 @@ Public Class    XtraForm1
                             objetivo = 0
                         End If
 
-                        cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET oee_minutos_rate = " & minutosRate & ", ultima_lectura = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', parte = " & captura!oee_parte_actual & ", tripulacion = " & captura!oee_tripulacion_actual & ", turno = " & captura!oee_turno_actual & ", produccion = " & produccion & ", produccion_tc = " & produccion_tc & ", calidad = " & calidad & ", calidad_tc = " & calidad_tc & ", buffer = buffer + " & buffer & ", norden = '" & captura!norden & "', nparte = '" & captura!nparte & "', nequipo = '" & captura!nequipo & "', ntripulacion = '" & captura!ntripulacion & "', referencia = '" & captura!referencia & "', nturno = '" & captura!nturno & "', rate_teorico = " & rateEquipo & ", rate_min = " & rateBajo & ", rate_max = " & rateAlto & ", objetivo = " & objetivo & ", rate = " & rateActual & cadAdic & ", rate_efecto = '" & rateEfecto & "', ultimo_rate = " & uRate & ", ratemed = '" & rateUnidad & "', esperadodis = " & eDIS & ", esperadoftq = " & eFTQ & ", esperadoefi = " & eEFI & ", esperadooee = " & eOEE & ", hoyos = '" & IIf(incluyeHoyos, "S", "N") & "', efi = " & EFI & ", dis = " & DIS & ", ftq = " & FTQ & ", oee = " & OEE & otraCad & ", paro_actual = " & paroActual & ", parosmostrar = parosmostrar + " & tiempoParo & cadPlaneado & ", corte = " & idCorte & " WHERE equipo = " & captura!maquinaid
+                        cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET oee_minutos_rate = " & minutosRate & ", ultima_lectura = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', parte = " & captura!oee_parte_actual & ", tripulacion = " & captura!oee_tripulacion_actual & ", turno = " & captura!oee_turno_actual & ", produccion = " & produccion & ", produccion_tc = " & produccion_tc & ", calidad = " & calidad & ", calidad_tc = " & calidad_tc & ", buffer = buffer + " & buffer & ", norden = '" & captura!norden & "', nparte = '" & captura!nparte & "', nequipo = '" & captura!nequipo & "', ntripulacion = '" & captura!ntripulacion & "', referencia = '" & captura!referencia & "', nturno = '" & captura!nturno & "', rate_teorico = " & rateEquipo & ", rate_min = " & rateBajo & ", rate_max = " & rateAlto & ", objetivo = " & objetivo & ", van = " & van & ", rate = " & rateActual & cadAdic & ", rate_efecto = '" & rateEfecto & "', ultimo_rate = " & uRate & ", ratemed = '" & rateUnidad & "', esperadodis = " & eDIS & ", esperadoftq = " & eFTQ & ", esperadoefi = " & eEFI & ", esperadooee = " & eOEE & ", hoyos = '" & IIf(incluyeHoyos, "S", "N") & "', efi = " & EFI & ", dis = " & DIS & ", ftq = " & FTQ & ", oee = " & OEE & otraCad & ", paro_actual = " & paroActual & ", parosmostrar = parosmostrar + " & tiempoParo & cadPlaneado & ", corte = " & idCorte & " WHERE equipo = " & captura!maquinaid
 
-                        'MsgBox("Guardado todo!")
 
                         If miResumen.Tables(0).Rows(0)!iniciar = "S" Or (miResumen.Tables(0).Rows(0)!iniciar_1 = "S" And reinicio = 1) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_2 = "S" And reinicio = 2) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_3 = "S" And reinicio = 3) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_4 = "S" And reinicio = 4) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_5 = "S" And reinicio = 5) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_6 = "S" And reinicio = 6) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_7 = "S" And reinicio = 7) _
-                        Or (miResumen.Tables(0).Rows(0)!iniciar_8 = "S" And reinicio = 8) Then
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_2 = "S" And reinicio = 2) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_3 = "S" And reinicio = 3) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_4 = "S" And reinicio = 4) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_5 = "S" And reinicio = 5) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_6 = "S" And reinicio = 6) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_7 = "S" And reinicio = 7) _
+                    Or (miResumen.Tables(0).Rows(0)!iniciar_8 = "S" And reinicio = 8) Then
                             cadSQL = cadSQL & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET produccion = 0, calidad = 0, produccion_tc = 0, calidad_tc = 0, buffer = 0, parosmostrar = 0, rate_mal_desde = NULL, rate_tendencia_baja = NULL, rate_tendencia_alta = NULL, ftq_tendencia_baja = NULL, oee_tendencia_baja = NULL, dis_tendencia_baja = NULL, efi_tendencia_baja = NULL, parada_desde = NULL, paro_actual = 0, ultima_reparacion = NULL, ultima_produccion = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', alarmado_manual = 'N', ultima_buffer = NULL, iniciar = 'N', iniciar_1 = 'N', iniciar_2 = 'N', iniciar_3 = 'N', iniciar_4 = 'N', iniciar_5 = 'N', iniciar_6 = 'N', iniciar_7 = 'N', iniciar_8 = 'N', fecha_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', planeado = 'N', estado_desde = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "'" & IIf(ValNull(captura!oee_historico_rate_reiniciar, "A") = "1", ", desde_rate = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "'", "") & " WHERE equipo = " & captura!maquinaid
                         End If
 
@@ -3230,13 +3580,17 @@ Public Class    XtraForm1
 
                         cadSQL = "SELECT id FROM " & rutaBD & ".lecturas_resumen WHERE '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' >= desde AND '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' <= hasta  AND equipo = " & captura!maquinaid
                         corte = consultaSEL(cadSQL)
+
                         If corte.Tables(0).Rows.Count = 0 Then
                             'Se crean los 4 registros
                             buscarTipo = True
                             Dim minuto = 0
+                            esaqui = True
                             For i = 1 To 4
                                 regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".lecturas_resumen (equipo, desde, hasta, hora) VALUES (" & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd HH:") & Format(minuto, "00") & ":00', '" & Format(ultimo, "yyyy/MM/dd HH:") & Format(minuto + 14, "00") & ":59', " & Format(ultimo, "HH") & ")")
                                 minuto = minuto + 15
+
+
                             Next
                             Dim ultimo2 = ultimo
                             ultimo2 = Convert.ToDateTime(Format(ultimo2, "yyyy/MM/dd HH") & ":00:00")
@@ -3252,26 +3606,37 @@ Public Class    XtraForm1
                             Next
                             'Se recalcula el pasado
                             corte = consultaSEL(cadSQL)
-                            'MsgBox("REsumenes creados")
 
                         End If
-                        If (minutoEste Mod 5 = 0 And miResumen.Tables(0).Rows(0)!tiempo_corte <> minutoEste) Or buscarTipo Then
 
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET tiempo_corte = " & minutoEste & " WHERE equipo = " & captura!maquinaid)
-                            Dim cadenaTipo = "SELECT * FROM " & rutaBD & ".lecturas_resumen WHERE equipo = " & captura!maquinaid & " ORDER BY desde DESC LIMIT 8"
+                        If captura!replanear = "S" Then
+                            crearProgramacion(captura!maquinaid, captura!oee_lote_actual, captura!oee_parte_actual, captura!replanear_desde, captura!proceso, objetivo, van)
+                        End If
+                        If captura!compaginar = "S" Then
+                            compaginar(captura!maquinaid, captura!oee_lote_actual, Strings.Left(captura!compaginar_desde, 10), Strings.Right(captura!compaginar_desde, 2))
+                        End If
+
+
+
+                        If (minutoEste Mod 5 = 0 And miResumen.Tables(0).Rows(0)!tiempo_corte <> minutoEste) Or buscarTipo Then
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas Set tiempo_corte = " & minutoEste & " WHERE equipo = " & captura!maquinaid)
+                            Dim cadenaTipo = "Select * FROM " & rutaBD & ".lecturas_resumen WHERE equipo = " & captura!maquinaid & " ORDER BY desde DESC LIMIT 8"
                             Dim calcularTipo = consultaSEL(cadenaTipo)
                             If calcularTipo.Tables(0).Rows.Count > 0 Then
                                 For Each tipoColor In calcularTipo.Tables(0).Rows
                                     If tipoColor!produccion > 0 And tipoColor!produccion >= tipoColor!bajorate And tipoColor!produccion >= tipoColor!paro Then
-                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen SET tipo = 1 WHERE id = " & tipoColor!id)
+                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen Set tipo = 1 WHERE id = " & tipoColor!id)
                                     ElseIf tipoColor!bajorate > 0 And tipoColor!bajorate >= tipoColor!paro And tipoColor!bajorate >= tipoColor!produccion And tipoColor!bajorate >= tipoColor!sinplan Then
-                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen SET tipo = 2 WHERE id = " & tipoColor!id)
+                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen Set tipo = 2 WHERE id = " & tipoColor!id)
                                     ElseIf tipoColor!paro > 0 And tipoColor!paro >= tipoColor!bajorate And tipoColor!paro >= tipoColor!produccion And tipoColor!paro >= tipoColor!sinplan Then
-                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen SET tipo = 3 WHERE id = " & tipoColor!id)
+                                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas_resumen Set tipo = 3 WHERE id = " & tipoColor!id)
                                     End If
                                 Next
                             End If
                         End If
+
+                        'Antes
+
                         cadAdic = ""
                         If paroActual > 0 Then
                             cadAdic = "paro = paro + 1"
@@ -3285,24 +3650,32 @@ Public Class    XtraForm1
                             cadAdic = "produccion = produccion + 1"
                         End If
                         If miResumen.Tables(0).Rows(0)!transcurrido <> tiempoTranscurrido Then
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET transcurrido = " & tiempoTranscurrido & ", transcurrido_pasar = 0 WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas Set transcurrido = " & tiempoTranscurrido & ", transcurrido_pasar = 0 WHERE equipo = " & captura!maquinaid)
                         Else
-                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET transcurrido_pasar = 1 WHERE equipo = " & captura!maquinaid)
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas Set transcurrido_pasar = 1 WHERE equipo = " & captura!maquinaid)
                         End If
+
 
                         Dim cadSeg = ""
                         Dim cadSeg2 = ""
                         cadSeg = "DELETE FROM " & rutaBD & ".piezasxminuto WHERE equipo = " & captura!maquinaid & " And fecha <= DATE_ADD('" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', INTERVAL -1 DAY);"
                         If produccion_seg > 0 Or tiempoParo > 0 Then
+                            'Antes
+
                             Dim hhdmm = Format(ultimo, "HHmm")
                             general = consultaSEL("SELECT hhmm FROM " & rutaBD & ".piezasxminuto WHERE equipo = " & captura!maquinaid & " AND hhmm = '" & hhdmm & "'")
                             cadSeg2 = "INSERT INTO " & rutaBD & ".piezasxminuto VALUES(" & captura!maquinaid & ", '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "', " & produccion_seg & ", " & tiempoParo & ", '" & hhdmm & "');"
 
+
                             If general.Tables(0).Rows.Count > 0 Then
                                 cadSeg2 = "UPDATE " & rutaBD & ".piezasxminuto SET produccion = produccion + " & produccion_seg & ", paro = paro + " & tiempoParo & " WHERE equipo = " & captura!maquinaid & " AND hhmm = '" & hhdmm & "';"
                             End If
-
                         End If
+
+
+
+                        'Despues
+
 
                         If tiempoParo > 0 And paroActual > 0 Then
                             cadSeg = cadSeg & "UPDATE " & rutaBD & ".detalleparos SET corte = '" & Format(ultimo, "yyyy/MM/dd HH:mm:ss") & "' WHERE id = " & paroActual & ";"
@@ -3313,6 +3686,7 @@ Public Class    XtraForm1
                         regsAfectados = consultaACT(cadSQL)
                     End If
                     TTotal = 0
+
                 Next
                 regsAfectados = consultaACT("UPDATE " & rutaBD & ".lecturas SET estatus = 2 WHERE estatus = 1")
             End If
@@ -3320,9 +3694,9 @@ Public Class    XtraForm1
             regsAfectados = consultaACT("UPDATE " & rutaBD & ".configuracion Set lectura_pendiente = 0")
         End If
         revisandoSensores = False
+
+
     End Sub
-
-
 
     Private Sub cambioTurno_Tick(sender As Object, e As EventArgs) Handles cambioTurno.Tick
         If Not estadoPrograma Then Exit Sub
@@ -3332,17 +3706,18 @@ Public Class    XtraForm1
         Dim ultimoHora As String = Format(Now, "HH:mm:ss")
         Dim nombreTurno As String = ""
 
-        cadSQL = "SELECT turno_oee FROM " & rutaBD & ".configuracion"
+        cadSQL = "SELECT turno_oee, oee_por_turno, turno_secuencia FROM " & rutaBD & ".configuracion"
         Dim config As DataSet = consultaSEL(cadSQL)
         If config.Tables(0).Rows.Count > 0 Then
             miTurno = -1
-            cadSQL = "SELECT id, inicia, termina, nombre FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND (inicia <= '" & ultimoHora & "' OR termina >= '" & ultimoHora & "') AND id <> " & config.Tables(0).Rows(0)!turno_oee & " ORDER BY inicia, termina"
+            cadSQL = "SELECT id, inicia, termina, nombre, usuario FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND (inicia <= '" & ultimoHora & "' OR termina >= '" & ultimoHora & "') AND id <> " & config.Tables(0).Rows(0)!turno_oee & " ORDER BY inicia, termina"
             Dim horarios As DataSet = consultaSEL(cadSQL)
             If horarios.Tables(0).Rows.Count > 0 Then
                 For Each horario In horarios.Tables(0).Rows
                     If ultimoHora >= horario!inicia.ToString And ultimoHora <= horario!termina.ToString Then
                         miTurno = horario!id
                         nombreTurno = ValNull(horario!nombre, "A")
+                        operador = ValNull(horario!usuario, "A")
                         Exit For
                     End If
                 Next
@@ -3351,17 +3726,61 @@ Public Class    XtraForm1
                         If (ultimoHora >= horario!inicia.ToString Or ultimoHora <= horario!termina.ToString) And horario!termina.ToString < horario!inicia.ToString Then
                             miTurno = horario!id
                             nombreTurno = ValNull(horario!nombre, "A")
+                            operador = ValNull(horario!usuario, "A")
                             Exit For
                         End If
                     Next
 
                 End If
+                If miTurno = -1 Then
+                    miTurno = config.Tables(0).Rows(0)!turno_oee
+                Else
+                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_turno_actual = " & miTurno & " WHERE oee = 'S';UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET iniciar_4 = 'S', turno = " & miTurno & ", nturno = '" & nombreTurno & "';UPDATE " & rutaBD & ".configuracion SET turno_oee = " & miTurno & ", turno_secuencia = turno_secuencia + 1")
+                    agregarSolo("Cambio de turno: " & nombreTurno)
+                End If
+            End If
+            'If miTurno > 0 Then
+            '    'Se calculan los indicadores por turno antes del cambio
+            '    'If ValNull(config.Tables(0).Rows(0)!oee_por_turno, "A") = "S" Then
+            '    Try
+            '        'Enviar el mensaje de corte por turno (últimas 8 horas)
+            '        'Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "oee_por_turno;" & config.Tables(0).Rows(0)!turno_secuencia & Chr(34), AppWinStyle.MinimizedNoFocus)
 
-            End If
-            If miTurno > 0 Then
-                regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_turno_actual = " & miTurno & " WHERE oee = 'S';UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET iniciar_4 = 'S', turno = " & miTurno & ", nturno = '" & nombreTurno & "';UPDATE " & rutaBD & ".configuracion SET turno_oee = " & miTurno)
-                agregarSolo("Cambio de turno: " & nombreTurno)
-            End If
+            '        Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "hxh_por_turno;" & config.Tables(0).Rows(0)!turno_secuencia & Chr(34), AppWinStyle.MinimizedNoFocus)
+
+            '    Catch ex As Exception
+            '    End Try
+            '    'End If
+            '    regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET oee_turno_actual = " & miTurno & " WHERE oee = 'S';UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET iniciar_4 = 'S', turno = " & miTurno & ", nturno = '" & nombreTurno & "';UPDATE " & rutaBD & ".configuracion SET turno_oee = " & miTurno & ", turno_secuencia = turno_secuencia + 1")
+            '    agregarSolo("Cambio de turno: " & nombreTurno)
+            'End If
+            'cadSQL = "SELECT * FROM " & rutaBD & ".control WHERE fecha = '" & Format(Now, "yyyyMMddHH") & "' AND tipo = 1"
+            'Dim readerDS As DataSet = consultaSEL(cadSQL)
+            'If readerDS.Tables(0).Rows.Count = 0 Then
+            '    Try
+            '        'Enviar el mensaje de corte por turno (últimas 8 horas)
+            '        Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "hxh_por_hora;" & Format(Now, "HH") & Chr(34), AppWinStyle.MinimizedNoFocus)
+            '        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".control (fecha, tipo) VALUES ('" & Format(Now, "yyyyMMddHH") & "', 1)")
+
+            '    Catch ex As Exception
+            '    End Try
+            'End If
+
+            'cadSQL = "SELECT * FROM " & rutaBD & ".control WHERE fecha = '" & Format(Now, "yyyyMMdd") & "' AND tipo = 2"
+            'readerDS = consultaSEL(cadSQL)
+            'If readerDS.Tables(0).Rows.Count = 0 Then
+            '    Try
+            '        'Enviar el mensaje de corte por turno (últimas 8 horas)
+            '        Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "hxh_por_dia;" & Format(Now, "yyyyMMddHH") & Chr(34), AppWinStyle.MinimizedNoFocus)
+            '        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".control (fecha, tipo) VALUES ('" & Format(Now, "yyyyMMdd") & "', 2)")
+
+            '    Catch ex As Exception
+
+            '    End Try
+            'End If
+
+
+
         End If
     End Sub
 
@@ -3390,7 +3809,7 @@ Public Class    XtraForm1
 
 
 
-        regsAfectados = consultaACT("UPDATE " & rutaBD & ".mensajes SET estatus = '" & idProceso & "' WHERE estatus = 'A'")
+        regsAfectados = consultaACT("UPDATE " & rutaBD & ".mensajes SET estatus = '" & idProceso & "' WHERE estatus = 'A' AND alerta >= 0")
         cadSQL = "SELECT a.id, a.canal, b.evento, a.prioridad FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_alertas b on a.alerta = b.id WHERE a.estatus = '" & idProceso & "' ORDER BY a.prioridad DESC, a.id"
         'Se preselecciona la voz
         mensajesDS = consultaSEL(cadSQL)
@@ -3420,11 +3839,11 @@ Public Class    XtraForm1
                 ElseIf elmensaje!evento = 207 Then
                     cadSQL = "SELECT a.*, oee AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.oee_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
                 ElseIf elmensaje!evento = 301 Then
-                    cadSQL = "SELECT a.*, e1.referencia, e1.nombre AS producto, b1.numero AS nlote, IFNULL((SELECT MIN(orden) FROM " & rutaBD & ".prioridades WHERE parte = b1.parte AND fecha >= NOW() AND estatus = 'A'), 100) AS prioridad, d.ruta_secuencia, d.ruta_secuencia_antes, IFNULL(c1.nombre, 'N/A') AS ruta_antes, IFNULL(d1.nombre, 'N/A') AS ruta_despues, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS fecha, NOW() AS inicio_atencion, NOW() AS inicio_reporte, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes_historia d ON a.proceso = d.id INNER JOIN " & rutaBD & ".lotes b1 ON d.lote = b1.id LEFT JOIN " & rutaBD & ".det_rutas c1 ON d.ruta_detalle_anterior = c1.id LEFT JOIN " & rutaBD & ".det_rutas d1 ON d.ruta_detalle = d1.id LEFT JOIN " & rutaBD & ".cat_partes e1 ON b1.parte = e1.id WHERE a.id = " & elmensaje!id
+                    cadSQL = "SELECT a.*, e1.referencia, e1.nombre AS producto, b1.numero AS nlote, IFNULL((SELECT MIN(orden) FROM " & rutaBD & ".prioridades WHERE parte = b1.parte AND fecha >= NOW() AND estatus = 'A'), 100) AS prioridad, d.ruta_secuencia, d.ruta_secuencia_antes, IFNULL(c1.nombre, '" & traduccion(145) & "') AS ruta_antes, IFNULL(d1.nombre, '" & traduccion(145) & "') AS ruta_despues, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS fecha, NOW() AS inicio_atencion, NOW() AS inicio_reporte, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes_historia d ON a.proceso = d.id INNER JOIN " & rutaBD & ".lotes b1 ON d.lote = b1.id LEFT JOIN " & rutaBD & ".det_rutas c1 ON d.ruta_detalle_anterior = c1.id LEFT JOIN " & rutaBD & ".det_rutas d1 ON d.ruta_detalle = d1.id LEFT JOIN " & rutaBD & ".cat_partes e1 ON b1.parte = e1.id WHERE a.id = " & elmensaje!id
                 ElseIf elmensaje!evento = 302 Or elmensaje!evento = 303 Or elmensaje!evento = 305 Or elmensaje!evento = 306 Then
-                    cadSQL = "SELECT a.*, d.hasta, d.numero AS nlote, d.fecha, TIME_TO_SEC(TIMEDIFF(d.hasta, NOW())) AS previo, d.ruta_secuencia, c1.referencia, c1.nombre AS producto, IFNULL(b1.nombre, 'N/A') AS ruta_actual, IFNULL(e1.nombre, 'N/A') as equipo, IFNULL(d1.nombre, 'N/A') as nproceso, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".det_rutas b1 ON d.ruta_detalle = b1.id LEFT JOIN " & rutaBD & ".cat_partes c1 ON d.parte = c1.id LEFT JOIN " & rutaBD & ".cat_procesos d1 ON d.proceso = d1.id LEFT JOIN " & rutaBD & ".cat_maquinas e1 ON d.equipo= e1.id WHERE a.id = " & elmensaje!id
+                    cadSQL = "SELECT a.*, d.hasta, d.numero AS nlote, d.fecha, TIME_TO_SEC(TIMEDIFF(d.hasta, NOW())) AS previo, d.ruta_secuencia, c1.referencia, c1.nombre AS producto, IFNULL(b1.nombre, '" & traduccion(145) & "') AS ruta_actual, IFNULL(e1.nombre, '" & traduccion(145) & "') as equipo, IFNULL(d1.nombre, '" & traduccion(145) & "') as nproceso, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".det_rutas b1 ON d.ruta_detalle = b1.id LEFT JOIN " & rutaBD & ".cat_partes c1 ON d.parte = c1.id LEFT JOIN " & rutaBD & ".cat_procesos d1 ON d.proceso = d1.id LEFT JOIN " & rutaBD & ".cat_maquinas e1 ON d.equipo= e1.id WHERE a.id = " & elmensaje!id
                 ElseIf elmensaje!evento = 304 Or elmensaje!evento = 307 Then
-                    cadSQL = "SELECT a.*, 0 AS previo, d.carga, d.alarma, d.alarma_rep, d.fecha, d.permitir_reprogramacion, d.equipo, d.fecha, IFNULL(b1.nombre, 'N/A') as nequipo, IFNULL(c1.nombre, 'N/A') as nproceso, IFNULL((SELECT SUM(cantidad) FROM " & rutaBD & ".programacion WHERE carga = d.id AND estatus = 'A'), 0) AS piezas, (SELECT COUNT(*) FROM " & rutaBD & ".lotes WHERE carga = d.id) AS avance, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".cargas d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".cat_maquinas b1 ON d.equipo = b1.id AND b1.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_procesos c1 ON b1.proceso = c1.id AND c1.estatus = 'A' WHERE a.id = " & elmensaje!id
+                    cadSQL = "SELECT a.*, 0 AS previo, d.carga, d.alarma, d.alarma_rep, d.fecha, d.permitir_reprogramacion, d.equipo, d.fecha, IFNULL(b1.nombre, '" & traduccion(145) & "') as nequipo, IFNULL(c1.nombre, '" & traduccion(145) & "') as nproceso, IFNULL((SELECT SUM(cantidad) FROM " & rutaBD & ".programacion WHERE carga = d.id AND estatus = 'A'), 0) AS piezas, (SELECT COUNT(*) FROM " & rutaBD & ".lotes WHERE carga = d.id) AS avance, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".cargas d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".cat_maquinas b1 ON d.equipo = b1.id AND b1.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_procesos c1 ON b1.proceso = c1.id AND c1.estatus = 'A' WHERE a.id = " & elmensaje!id
                 End If
 
                 registroDS = consultaSEL(cadSQL)
@@ -3442,7 +3861,7 @@ Public Class    XtraForm1
                         laFalla = ""
                     End If
 
-                    If elmensaje!evento = 101 Or elmensaje!evento = 201 Or elmensaje!evento = 301 Or (elmensaje!evento >= 204 And elmensaje!evento >= 207) Then
+                    If elmensaje!evento = 101 Or elmensaje!evento = 201 Or elmensaje!evento = 301 Or (elmensaje!evento >= 204 And elmensaje!evento <= 207) Then
                         fecha = registroDS.Tables(0).Rows(0)!fecha
                     ElseIf elmensaje!evento = 102 Or elmensaje!evento = 202 Or elmensaje!evento > 300 Then
                         fecha = registroDS.Tables(0).Rows(0)!inicio_atencion
@@ -3481,14 +3900,14 @@ Public Class    XtraForm1
                         End If
                         If ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") <= 0 Then
                             If ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N") > 0 Then
-                                eMensaje = Replace(eMensaje, "[20]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
+                                eMensaje = Replace(eMensaje, "[20]", traduccion(94) & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
                             Else
                                 eMensaje = Replace(eMensaje, "[20]", "")
                             End If
                             eMensaje = Replace(eMensaje, "[30]", "")
                         ElseIf ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") > 0 Then
                             Dim escala = ValNull(registroDS.Tables(0).Rows(0)!fase, "N") - 10
-                            eMensaje = Replace(eMensaje, "[30]", "Escalado al Nivel " & If(escala > 0, escala, 0))
+                            eMensaje = Replace(eMensaje, "[30]", traduccion(95) & If(escala > 0, escala, 0))
                             Dim repeticiones = 0
                             If escala = 1 Then
                                 repeticiones = ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N")
@@ -3553,39 +3972,39 @@ Public Class    XtraForm1
                         End If
                     Else
                         If elmensaje!evento = 101 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO ESPERA EXCED"
+                            eMensaje = traduccion(80) & " " & nroReporte & traduccion(77)
                         ElseIf elmensaje!evento = 102 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO REPARAC EXCED"
+                            eMensaje = traduccion(80) & " " & nroReporte & traduccion(78)
                         ElseIf elmensaje!evento = 103 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO INFORME EXCED"
+                            eMensaje = traduccion(80) & " " & nroReporte & traduccion(79)
                         ElseIf elmensaje!evento = 201 Then
-                            eMensaje = "BAJO RATE EN " & laMaquina
+                            eMensaje = traduccion(81) & laMaquina
                         ElseIf elmensaje!evento = 202 Then
-                            eMensaje = "SOBRE RATE EN " & laMaquina
+                            eMensaje = traduccion(82) & laMaquina
                         ElseIf elmensaje!evento = 203 Then
-                            eMensaje = laMaquina & " NO SE DETECTAN PIEZAS"
+                            eMensaje = laMaquina & " " & traduccion(74)
                         ElseIf elmensaje!evento = 204 Then
-                            eMensaje = "BAJO FTQ " & laMaquina
+                            eMensaje = traduccion(83) & laMaquina
                         ElseIf elmensaje!evento = 205 Then
-                            eMensaje = "BAJO DISP " & laMaquina
+                            eMensaje = traduccion(84) & laMaquina
                         ElseIf elmensaje!evento = 206 Then
-                            eMensaje = "BAJO EFIC EN " & laMaquina
+                            eMensaje = traduccion(85) & laMaquina
                         ElseIf elmensaje!evento = 207 Then
-                            eMensaje = "BAJO OAE EN " & laMaquina
+                            eMensaje = traduccion(86) & laMaquina
                         ElseIf elmensaje!evento = 301 Then
-                            eMensaje = "SALTO DE OPERACION"
+                            eMensaje = traduccion(87)
                         ElseIf elmensaje!evento = 302 Then
-                            eMensaje = "TIEMPO DE STOCK VENCIDO"
+                            eMensaje = traduccion(88)
                         ElseIf elmensaje!evento = 303 Then
-                            eMensaje = "TIEMPO DE PROCESO VENCIDO"
+                            eMensaje = traduccion(89)
                         ElseIf elmensaje!evento = 304 Then
-                            eMensaje = "TIEMPO DE ENTREGA VENCIDO"
+                            eMensaje = traduccion(90)
                         ElseIf elmensaje!evento = 305 Then
-                            eMensaje = "TIEMPO DE STOCK POR VENCER"
+                            eMensaje = traduccion(91)
                         ElseIf elmensaje!evento = 306 Then
-                            eMensaje = "TIEMPO DE PROCESO POR VENCER"
+                            eMensaje = traduccion(92)
                         ElseIf elmensaje!evento = 307 Then
-                            eMensaje = "TIEMPO DE ENTREGA POR VENCER"
+                            eMensaje = traduccion(93)
                         End If
                     End If
 
@@ -3608,14 +4027,14 @@ Public Class    XtraForm1
 
                             If ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") <= 0 Then
                                 If ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N") > 0 Then
-                                    eTitulo = Replace(eTitulo, "[20]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
+                                    eTitulo = Replace(eTitulo, "[20]", traduccion(94) & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
                                 Else
                                     eTitulo = Replace(eTitulo, "[20]", "")
                                 End If
                                 eTitulo = Replace(eTitulo, "[30]", "")
                             ElseIf ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") > 0 Then
                                 Dim escala = ValNull(registroDS.Tables(0).Rows(0)!fase, "N") - 10
-                                eTitulo = Replace(eTitulo, "[30]", "Escalado al Nivel " & If(escala > 0, escala, 0))
+                                eTitulo = Replace(eTitulo, "[30]", traduccion(95) & If(escala > 0, escala, 0))
                                 Dim repeticiones = 0
                                 If escala = 1 Then
                                     repeticiones = ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N")
@@ -3709,337 +4128,66 @@ Public Class    XtraForm1
         End If
     End Sub
 
-    Sub crearMensajesCL()
+    Sub crearMensajesDOS()
         Dim idProceso = Process.GetCurrentProcess.Id
         Dim mensajesDS As DataSet
         Dim registroDS As DataSet
         Dim eMensaje = ""
-        Dim laLinea As String = ""
-        Dim laMaquina As String = ""
-        Dim laArea As String = ""
-        Dim laFalla As String = ""
-        Dim fecha
-        Dim tiempo As String = ""
         Dim cadSQL As String = ""
-        Dim nroReporte As Integer = 0
         Dim eTitulo = ""
 
         'Escalada 4
-        Dim miError As String = ""
-        Dim optimizar As Boolean = False
-        Dim mantenerPrioridad As Boolean = False
         Dim regsAfectados = 0
 
         Dim maximo_largo_mmcall As Integer = 40
 
-
-
-        regsAfectados = consultaACT("UPDATE " & rutaBD & ".mensajes SET estatus = '" & idProceso & "' WHERE estatus = 'A'")
-        cadSQL = "SELECT a.id, a.canal, b.evento, a.prioridad FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_alertas b on a.alerta = b.id WHERE a.estatus = '" & idProceso & "' ORDER BY a.prioridad DESC, a.id"
+        regsAfectados = consultaACT("UPDATE " & rutaBD & ".mensajes SET estatus = '" & idProceso & "' WHERE estatus = 'A' AND alerta < 0")
+        cadSQL = "SELECT id, canal, 0 AS evento, 0 AS prioridad FROM " & rutaBD & ".mensajes WHERE estatus = '" & idProceso & "' ORDER BY id"
         'Se preselecciona la voz
         mensajesDS = consultaSEL(cadSQL)
-        Dim generarMensaje As Boolean
         If mensajesDS.Tables(0).Rows.Count > 0 Then
+            Dim cadAdic = ""
             For Each elmensaje In mensajesDS.Tables(0).Rows
-                generarMensaje = False
                 eMensaje = ""
-                laLinea = ""
-                laMaquina = ""
-                laArea = ""
-                laFalla = ""
-                tiempo = ""
-                generarMensaje = True
-                nroReporte = 0
-
-                If elmensaje!evento < 200 Then
-                    cadSQL = "SELECT a.*, 0 AS rate, 0 AS oee, e.nombre as nlinea, f.nombre as nmaquina, g.nombre as narea, h.nombre as nfalla, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, d.fecha, d.inicio_atencion, d.inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".reportes d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".cat_lineas e ON d.linea = e.id LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.maquina = f.id LEFT JOIN " & rutaBD & ".cat_areas g ON d.area = g.id LEFT JOIN " & rutaBD & ".cat_fallas h ON d.falla = h.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento < 204 Then
-                    cadSQL = "SELECT a.*, IF(d.rate_teorico > 0, d.rate / d.rate_teorico * 100, 0) AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.rate_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 204 Then
-                    cadSQL = "SELECT a.*, ftq AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.ftq_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 205 Then
-                    cadSQL = "SELECT a.*, dis AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.dis_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 206 Then
-                    cadSQL = "SELECT a.*, efi AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.efi_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 207 Then
-                    cadSQL = "SELECT a.*, oee AS rate, d.oee, e.nombre as nlinea, f.nombre as nmaquina, '' as narea, '' as nfalla, c.id AS idalerta, c.acumular, c.mensaje, c.titulo, c.mensaje_mmcall, c.resolucion_mensaje, c.cancelacion_mensaje, d.oee_tendencia_baja AS fecha, d.rate_tendencia_alta AS inicio_atencion, d.ultima_produccion AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas d ON a.proceso = d.equipo LEFT JOIN " & rutaBD & ".cat_maquinas f ON d.equipo = f.id LEFT JOIN " & rutaBD & ".cat_lineas e ON f.linea = e.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 301 Then
-                    cadSQL = "SELECT a.*, e1.referencia, e1.nombre AS producto, b1.numero AS nlote, IFNULL((SELECT MIN(orden) FROM " & rutaBD & ".prioridades WHERE parte = b1.parte AND fecha >= NOW() AND estatus = 'A'), 100) AS prioridad, d.ruta_secuencia, d.ruta_secuencia_antes, IFNULL(c1.nombre, 'N/A') AS ruta_antes, IFNULL(d1.nombre, 'N/A') AS ruta_despues, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS fecha, NOW() AS inicio_atencion, NOW() AS inicio_reporte, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes_historia d ON a.proceso = d.id INNER JOIN " & rutaBD & ".lotes b1 ON d.lote = b1.id LEFT JOIN " & rutaBD & ".det_rutas c1 ON d.ruta_detalle_anterior = c1.id LEFT JOIN " & rutaBD & ".det_rutas d1 ON d.ruta_detalle = d1.id LEFT JOIN " & rutaBD & ".cat_partes e1 ON b1.parte = e1.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 302 Or elmensaje!evento = 303 Or elmensaje!evento = 305 Or elmensaje!evento = 306 Then
-                    cadSQL = "SELECT a.*, d.hasta, d.numero AS nlote, d.fecha, TIME_TO_SEC(TIMEDIFF(d.hasta, NOW())) AS previo, d.ruta_secuencia, c1.referencia, c1.nombre AS producto, IFNULL(b1.nombre, 'N/A') AS ruta_actual, IFNULL(e1.nombre, 'N/A') as equipo, IFNULL(d1.nombre, 'N/A') as nproceso, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".lotes d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".det_rutas b1 ON d.ruta_detalle = b1.id LEFT JOIN " & rutaBD & ".cat_partes c1 ON d.parte = c1.id LEFT JOIN " & rutaBD & ".cat_procesos d1 ON d.proceso = d1.id LEFT JOIN " & rutaBD & ".cat_maquinas e1 ON d.equipo= e1.id WHERE a.id = " & elmensaje!id
-                ElseIf elmensaje!evento = 304 Or elmensaje!evento = 307 Then
-                    cadSQL = "SELECT a.*, 0 AS previo, d.carga, d.alarma, d.alarma_rep, d.fecha, d.permitir_reprogramacion, d.equipo, d.fecha, IFNULL(b1.nombre, 'N/A') as nequipo, IFNULL(c1.nombre, 'N/A') as nproceso, IFNULL((SELECT SUM(cantidad) FROM " & rutaBD & ".programacion WHERE carga = d.id AND estatus = 'A'), 0) AS piezas, (SELECT COUNT(*) FROM " & rutaBD & ".lotes WHERE carga = d.id) AS avance, c.id AS idalerta, c.acumular, c.mensaje_mmcall, c.mensaje, c.titulo, c.resolucion_mensaje, c.cancelacion_mensaje, i.inicio AS inicio_atencion, NOW() AS inicio_reporte, d.estatus, i.repeticiones, i.fase, i.escalamientos1, i.escalamientos2, i.escalamientos3, i.escalamientos4, i.escalamientos5 FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_distribucion b ON a.lista = b.id AND b.estatus = 'A' INNER JOIN " & rutaBD & ".cat_alertas c ON a.alerta = c.id INNER JOIN " & rutaBD & ".alarmas i ON a.alarma = i.id LEFT JOIN " & rutaBD & ".cargas d ON a.proceso = d.id LEFT JOIN " & rutaBD & ".cat_maquinas b1 ON d.equipo = b1.id AND b1.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_procesos c1 ON b1.proceso = c1.id AND c1.estatus = 'A' WHERE a.id = " & elmensaje!id
-                End If
-
+                cadSQL = "SELECT a.*, c.nombre AS nequipo, e.nombre AS ntipo, d.mensaje, d.titulo, d.mensaje_mmcall, d.mensaje2, d.titulo2, d.mensaje_mmcall2, b.nombre, b.referencia, b.tiempo, d.hora FROM " & rutaBD & ".mensajes a INNER JOIN " & rutaBD & ".cat_checklists b ON a.proceso = b.id INNER JOIN " & rutaBD & ".cat_maquinas c ON a.equipo = c.id INNER JOIN " & rutaBD & ".cat_generales e ON a.tipo = e.id INNER JOIN " & rutaBD & ".plan_checklists d ON a.prioridad = d.id WHERE a.id = " & elmensaje!id
                 registroDS = consultaSEL(cadSQL)
                 If registroDS.Tables(0).Rows.Count > 0 Then
-                    nroReporte = registroDS.Tables(0).Rows(0)!proceso
-                    If elmensaje!evento < 300 Then
-                        laLinea = ValNull(registroDS.Tables(0).Rows(0)!nlinea, "A")
-                        laMaquina = ValNull(registroDS.Tables(0).Rows(0)!nmaquina, "A")
-                        laArea = ValNull(registroDS.Tables(0).Rows(0)!narea, "A")
-                        laFalla = ValNull(registroDS.Tables(0).Rows(0)!nfalla, "A")
+                    Dim elTiempo = ""
+                    If registroDS.Tables(0).Rows(0)!tiempo > 0 Then
+                        elTiempo = Format(registroDS.Tables(0).Rows(0)!tiempo / 60, "0")
                     Else
-                        laLinea = ""
-                        laMaquina = ""
-                        laArea = ""
-                        laFalla = ""
+                        elTiempo = traduccion(184)
                     End If
 
-                    If elmensaje!evento = 101 Or elmensaje!evento = 201 Or elmensaje!evento = 301 Or (elmensaje!evento >= 204 And elmensaje!evento >= 207) Then
-                        fecha = registroDS.Tables(0).Rows(0)!fecha
-                    ElseIf elmensaje!evento = 102 Or elmensaje!evento = 202 Or elmensaje!evento > 300 Then
-                        fecha = registroDS.Tables(0).Rows(0)!inicio_atencion
-                    ElseIf elmensaje!evento = 103 Or elmensaje!evento = 203 Then
-                        fecha = registroDS.Tables(0).Rows(0)!inicio_reporte
-                    End If
-                    tiempo = calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, fecha, Now))
-                    Dim mIFormato = "dd-MMM-yyyy HH:mm:ss"
-
-                    If registroDS.Tables(0).Rows(0)!tipo = 8 Then
-                        eMensaje = ValNull(registroDS.Tables(0).Rows(0)!resolucion_mensaje, "A")
-                    ElseIf registroDS.Tables(0).Rows(0)!tipo = 7 Then
-                        eMensaje = ValNull(registroDS.Tables(0).Rows(0)!cancelacion_mensaje, "A")
+                    If registroDS.Tables(0).Rows(0)!canal = 3 Then
+                        eMensaje = IIf(registroDS.Tables(0).Rows(0)!alerta = 0, ValNull(registroDS.Tables(0).Rows(0)!mensaje_mmcall, "A"), ValNull(registroDS.Tables(0).Rows(0)!mensaje_mmcall2, "A"))
                     Else
-                        If elmensaje!canal = 3 Then
-                            mIFormato = "dd/MM HH:mm"
-                            eMensaje = ValNull(registroDS.Tables(0).Rows(0)!mensaje_mmcall, "A")
-                        Else
-                            eMensaje = ValNull(registroDS.Tables(0).Rows(0)!mensaje, "A")
-                        End If
-
+                        eMensaje = IIf(registroDS.Tables(0).Rows(0)!alerta = 0, ValNull(registroDS.Tables(0).Rows(0)!mensaje, "A"), ValNull(registroDS.Tables(0).Rows(0)!mensaje2, "A"))
                     End If
-
-                    If eMensaje.Length > 0 Then
-                        eMensaje = Replace(eMensaje, "[0]", nroReporte)
-                        eMensaje = Replace(eMensaje, "[1]", laLinea)
-                        eMensaje = Replace(eMensaje, "[2]", laMaquina)
-                        eMensaje = Replace(eMensaje, "[3]", laArea)
-                        eMensaje = Replace(eMensaje, "[4]", laFalla)
-                        eMensaje = Replace(eMensaje, "[5]", Format(fecha, mIFormato))
-                        eMensaje = Replace(eMensaje, "[11]", tiempo)
-                        If elmensaje!evento < 300 Then
-                            eMensaje = Replace(eMensaje, "[12]", Format(registroDS.Tables(0).Rows(0)!rate, "0.0"))
-                            eMensaje = Replace(eMensaje, "[13]", Format(registroDS.Tables(0).Rows(0)!oee, "0.0"))
-
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[20]", "R" & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[20]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") > 0 Then
-                            Dim escala = ValNull(registroDS.Tables(0).Rows(0)!fase, "N") - 10
-                            eMensaje = Replace(eMensaje, "[30]", "Escalado al Nivel " & If(escala > 0, escala, 0))
-                        Else
-                            eMensaje = Replace(eMensaje, "[30]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[31]", "R" & ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[31]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!escalamientos2, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[32]", "R" & ValNull(registroDS.Tables(0).Rows(0)!escalamientos2, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[32]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!escalamientos3, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[33]", "R" & ValNull(registroDS.Tables(0).Rows(0)!escalamientos3, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[33]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!escalamientos4, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[34]", "R" & ValNull(registroDS.Tables(0).Rows(0)!escalamientos4, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[34]", "")
-                        End If
-                        If ValNull(registroDS.Tables(0).Rows(0)!escalamientos5, "N") > 0 Then
-                            eMensaje = Replace(eMensaje, "[35]", "R" & ValNull(registroDS.Tables(0).Rows(0)!escalamientos5, "N"))
-                        Else
-                            eMensaje = Replace(eMensaje, "[35]", "")
-                        End If
-
-                        If elmensaje!evento = 301 Then
-                            eMensaje = Replace(eMensaje, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                            eMensaje = Replace(eMensaje, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                            eMensaje = Replace(eMensaje, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                            eMensaje = Replace(eMensaje, "[70]", ValNull(registroDS.Tables(0).Rows(0)!ruta_antes, "A"))
-                            eMensaje = Replace(eMensaje, "[71]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia_antes, "A"))
-                            eMensaje = Replace(eMensaje, "[72]", ValNull(registroDS.Tables(0).Rows(0)!ruta_despues, "A"))
-                            eMensaje = Replace(eMensaje, "[73]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-
-                        ElseIf elmensaje!evento = 302 Or elmensaje!evento = 305 Then
-                            eMensaje = Replace(eMensaje, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                            eMensaje = Replace(eMensaje, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                            eMensaje = Replace(eMensaje, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                            eMensaje = Replace(eMensaje, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                            eMensaje = Replace(eMensaje, "[44]", ValNull(registroDS.Tables(0).Rows(0)!ruta_actual, "A"))
-                            eMensaje = Replace(eMensaje, "[45]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-                            eMensaje = Replace(eMensaje, "[50]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                            eMensaje = Replace(eMensaje, "[51]", Format(registroDS.Tables(0).Rows(0)!hasta, mIFormato))
-                            eMensaje = Replace(eMensaje, "[52]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!hasta, DateAndTime.Now)))
-                            eMensaje = Replace(eMensaje, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                        ElseIf elmensaje!evento = 303 Or elmensaje!evento = 306 Then
-                            eMensaje = Replace(eMensaje, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                            eMensaje = Replace(eMensaje, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                            eMensaje = Replace(eMensaje, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                            eMensaje = Replace(eMensaje, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                            eMensaje = Replace(eMensaje, "[44]", ValNull(registroDS.Tables(0).Rows(0)!ruta_actual, "A"))
-                            eMensaje = Replace(eMensaje, "[45]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-                            eMensaje = Replace(eMensaje, "[61]", ValNull(registroDS.Tables(0).Rows(0)!equipo, "A"))
-                            eMensaje = Replace(eMensaje, "[62]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                            eMensaje = Replace(eMensaje, "[63]", Format(registroDS.Tables(0).Rows(0)!hasta, mIFormato))
-                            eMensaje = Replace(eMensaje, "[64]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!hasta, DateAndTime.Now)))
-                            eMensaje = Replace(eMensaje, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                        ElseIf elmensaje!evento = 304 Or elmensaje!evento = 307 Then
-                            eMensaje = Replace(eMensaje, "[80]", ValNull(registroDS.Tables(0).Rows(0)!carga, "A"))
-                            eMensaje = Replace(eMensaje, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                            eMensaje = Replace(eMensaje, "[61]", ValNull(registroDS.Tables(0).Rows(0)!nequipo, "A"))
-                            eMensaje = Replace(eMensaje, "[81]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                            eMensaje = Replace(eMensaje, "[82]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!fecha, DateAndTime.Now)))
-                            eMensaje = Replace(eMensaje, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                            eMensaje = Replace(eMensaje, "[84]", ValNull(registroDS.Tables(0).Rows(0)!texto, "A"))
-                        End If
+                    If eMensaje.Length = 0 Then
+                        eMensaje = "Se va a generar el checklist " & registroDS.Tables(0).Rows(0)!nombre & " a las " & registroDS.Tables(0).Rows(0)!hora.ToString
                     Else
-                        If elmensaje!evento = 101 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO ESPERA EXCED"
-                        ElseIf elmensaje!evento = 102 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO REPARAC EXCED"
-                        ElseIf elmensaje!evento = 103 Then
-                            eMensaje = "REPORTE " & nroReporte & " TIEMPO INFORME EXCED"
-                        ElseIf elmensaje!evento = 201 Then
-                            eMensaje = "BAJO RATE EN " & laMaquina
-                        ElseIf elmensaje!evento = 202 Then
-                            eMensaje = "SOBRE RATE EN " & laMaquina
-                        ElseIf elmensaje!evento = 203 Then
-                            eMensaje = laMaquina & " NO SE DETECTAN PIEZAS"
-                        ElseIf elmensaje!evento = 204 Then
-                            eMensaje = "BAJO FTQ " & laMaquina
-                        ElseIf elmensaje!evento = 205 Then
-                            eMensaje = "BAJO DISP " & laMaquina
-                        ElseIf elmensaje!evento = 206 Then
-                            eMensaje = "BAJO EFIC EN " & laMaquina
-                        ElseIf elmensaje!evento = 207 Then
-                            eMensaje = "BAJO OAE EN " & laMaquina
-                        ElseIf elmensaje!evento = 301 Then
-                            eMensaje = "SALTO DE OPERACION"
-                        ElseIf elmensaje!evento = 302 Then
-                            eMensaje = "TIEMPO DE STOCK VENCIDO"
-                        ElseIf elmensaje!evento = 303 Then
-                            eMensaje = "TIEMPO DE PROCESO VENCIDO"
-                        ElseIf elmensaje!evento = 304 Then
-                            eMensaje = "TIEMPO DE ENTREGA VENCIDO"
-                        ElseIf elmensaje!evento = 305 Then
-                            eMensaje = "TIEMPO DE STOCK POR VENCER"
-                        ElseIf elmensaje!evento = 306 Then
-                            eMensaje = "TIEMPO DE PROCESO POR VENCER"
-                        ElseIf elmensaje!evento = 307 Then
-                            eMensaje = "TIEMPO DE ENTREGA POR VENCER"
-                        End If
+                        eMensaje = Replace(eMensaje, "[0]", registroDS.Tables(0).Rows(0)!hora.ToString)
+                        eMensaje = Replace(eMensaje, "[1]", ValNull(registroDS.Tables(0).Rows(0)!nombre, "A"))
+                        eMensaje = Replace(eMensaje, "[2]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
+                        eMensaje = Replace(eMensaje, "[3]", ValNull(registroDS.Tables(0).Rows(0)!nequipo, "A"))
+                        eMensaje = Replace(eMensaje, "[4]", ValNull(registroDS.Tables(0).Rows(0)!ntipo, "A"))
+                        eMensaje = Replace(eMensaje, "[5]", elTiempo)
                     End If
-
-                    If elmensaje!canal = 2 Then
+                    If registroDS.Tables(0).Rows(0)!canal = 2 Then
+                        eTitulo = IIf(registroDS.Tables(0).Rows(0)!alerta = 0, ValNull(registroDS.Tables(0).Rows(0)!titulo, "A"), ValNull(registroDS.Tables(0).Rows(0)!titulo2, "A"))
                         If eTitulo.Length = 0 Then
-                            eTitulo = ValNull(registroDS.Tables(0).Rows(0)!titulo, "A")
+                            eTitulo = "Se va a generar el checklist " & registroDS.Tables(0).Rows(0)!nombre & " a la hora: " & registroDS.Tables(0).Rows(0)!hora.ToString
+                        Else
+                            eTitulo = Replace(eTitulo, "[0]", registroDS.Tables(0).Rows(0)!hora.ToString)
+                            eTitulo = Replace(eTitulo, "[1]", ValNull(registroDS.Tables(0).Rows(0)!nombre, "A"))
+                            eTitulo = Replace(eTitulo, "[2]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
+                            eTitulo = Replace(eTitulo, "[3]", ValNull(registroDS.Tables(0).Rows(0)!nequipo, "A"))
+                            eTitulo = Replace(eTitulo, "[4]", ValNull(registroDS.Tables(0).Rows(0)!ntipo, "A"))
+                            eTitulo = Replace(eTitulo, "[5]", elTiempo)
                         End If
-                        If eTitulo.Length > 0 Then
-                            eTitulo = Replace(eTitulo, "[0]", nroReporte)
-                            eTitulo = Replace(eTitulo, "[1]", laLinea)
-                            eTitulo = Replace(eTitulo, "[2]", laMaquina)
-                            eTitulo = Replace(eTitulo, "[3]", laArea)
-                            eTitulo = Replace(eTitulo, "[4]", laFalla)
-                            eTitulo = Replace(eTitulo, "[5]", Format(fecha, "ddd, dd-MMM-yyyy HH:mm"))
-                            eTitulo = Replace(eTitulo, "[11]", tiempo)
-                            If elmensaje!evento <= 300 Then
-                                eTitulo = Replace(eTitulo, "[12]", Format(registroDS.Tables(0).Rows(0)!rate, "0") & "%")
-                                eTitulo = Replace(eTitulo, "[13]", Format(registroDS.Tables(0).Rows(0)!oee, "0") & "%")
-                            End If
-
-                            If ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[20]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!repeticiones, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[20]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!fase - 10, "N") > 0 Then
-                                Dim escala = ValNull(registroDS.Tables(0).Rows(0)!fase, "N") - 10
-                                eTitulo = Replace(eTitulo, "[30]", "Escalado al Nivel " & If(escala > 0, escala, 0))
-                            Else
-                                eTitulo = Replace(eTitulo, "[30]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[31]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!escalamientos1, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[31]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!escalamientos2, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[32]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!escalamientos2, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[32]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!escalamientos3, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[33]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!escalamientos3, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[33]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!escalamientos4, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[34]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!escalamientos4, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[34]", "")
-                            End If
-                            If ValNull(registroDS.Tables(0).Rows(0)!escalamientos5, "N") > 0 Then
-                                eTitulo = Replace(eTitulo, "[35]", "Repetición " & ValNull(registroDS.Tables(0).Rows(0)!escalamientos5, "N"))
-                            Else
-                                eTitulo = Replace(eTitulo, "[35]", "")
-                            End If
-                            eTitulo = Replace(eTitulo, "[90]", "")
-                            eTitulo = Replace(eTitulo, System.Environment.NewLine, " ")
-
-                            If elmensaje!evento = 301 Then
-                                eTitulo = Replace(eTitulo, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                                eTitulo = Replace(eTitulo, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                                eTitulo = Replace(eTitulo, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                                eTitulo = Replace(eTitulo, "[70]", ValNull(registroDS.Tables(0).Rows(0)!ruta_antes, "A"))
-                                eTitulo = Replace(eTitulo, "[71]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia_antes, "A"))
-                                eTitulo = Replace(eTitulo, "[72]", ValNull(registroDS.Tables(0).Rows(0)!ruta_despues, "A"))
-                                eTitulo = Replace(eTitulo, "[73]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-
-                            ElseIf elmensaje!evento = 302 Or elmensaje!evento = 305 Then
-                                eTitulo = Replace(eTitulo, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                                eTitulo = Replace(eTitulo, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                                eTitulo = Replace(eTitulo, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                                eTitulo = Replace(eTitulo, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                                eTitulo = Replace(eTitulo, "[44]", ValNull(registroDS.Tables(0).Rows(0)!ruta_actual, "A"))
-                                eTitulo = Replace(eTitulo, "[45]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-                                eTitulo = Replace(eTitulo, "[50]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                                eTitulo = Replace(eTitulo, "[51]", Format(registroDS.Tables(0).Rows(0)!hasta, mIFormato))
-                                eTitulo = Replace(eTitulo, "[52]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!hasta, DateAndTime.Now)))
-                                eTitulo = Replace(eTitulo, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                            ElseIf elmensaje!evento = 303 Or elmensaje!evento = 306 Then
-                                eTitulo = Replace(eTitulo, "[41]", ValNull(registroDS.Tables(0).Rows(0)!nlote, "A"))
-                                eTitulo = Replace(eTitulo, "[42]", ValNull(registroDS.Tables(0).Rows(0)!referencia, "A"))
-                                eTitulo = Replace(eTitulo, "[43]", ValNull(registroDS.Tables(0).Rows(0)!producto, "A"))
-                                eTitulo = Replace(eTitulo, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                                eTitulo = Replace(eTitulo, "[44]", ValNull(registroDS.Tables(0).Rows(0)!ruta_actual, "A"))
-                                eTitulo = Replace(eTitulo, "[45]", ValNull(registroDS.Tables(0).Rows(0)!ruta_secuencia, "A"))
-                                eTitulo = Replace(eTitulo, "[61]", ValNull(registroDS.Tables(0).Rows(0)!equipo, "A"))
-                                eTitulo = Replace(eTitulo, "[62]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                                eTitulo = Replace(eTitulo, "[63]", Format(registroDS.Tables(0).Rows(0)!hasta, mIFormato))
-                                eTitulo = Replace(eTitulo, "[64]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!hasta, DateAndTime.Now)))
-                                eTitulo = Replace(eTitulo, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                            ElseIf elmensaje!evento = 304 Or elmensaje!evento = 307 Then
-                                eTitulo = Replace(eTitulo, "[80]", ValNull(registroDS.Tables(0).Rows(0)!carga, "A"))
-                                eTitulo = Replace(eTitulo, "[40]", ValNull(registroDS.Tables(0).Rows(0)!nproceso, "A"))
-                                eTitulo = Replace(eTitulo, "[61]", ValNull(registroDS.Tables(0).Rows(0)!nequipo, "A"))
-                                eTitulo = Replace(eTitulo, "[81]", Format(registroDS.Tables(0).Rows(0)!fecha, mIFormato))
-                                eTitulo = Replace(eTitulo, "[82]", calcularTiempoCad(DateAndTime.DateDiff(DateInterval.Second, registroDS.Tables(0).Rows(0)!fecha, DateAndTime.Now)))
-                                eTitulo = Replace(eTitulo, "[83]", calcularTiempoCad(registroDS.Tables(0).Rows(0)!previo))
-                                eTitulo = Replace(eTitulo, "[84]", ValNull(registroDS.Tables(0).Rows(0)!texto, "A"))
-
-                            End If
-                        End If
-
-                    ElseIf elmensaje!canal = 3 Then
+                    End If
+                    If registroDS.Tables(0).Rows(0)!canal = 3 Then
                         Dim antes As String = "ÃÀÁÄÂÈÉËÊÌÍÏÎÒÓÖÔÙÚÜÛãàáäâèéëêìíïîòóöôùúüûÑñÇç"
                         Dim ahora As String = "AAAAAEEEEIIIIOOOOUUUUaaaaaeeeeiiiioooouuuunncc"
                         For i = 0 To antes.Length - 1
@@ -4048,21 +4196,23 @@ Public Class    XtraForm1
                         eMensaje = Replace(eMensaje, ";", " ")
                         eMensaje = Replace(eMensaje, "\", "-")
                         eMensaje = Replace(eMensaje, "/", "-")
-                        eMensaje = Replace(eMensaje, "[90]", "")
                         eMensaje = Replace(eMensaje, System.Environment.NewLine, " ")
+                        eMensaje = Strings.Left(eMensaje, 40)
+
                         'Se cambian los caracteres especiales
                     End If
                     eMensaje = Strings.Left(eMensaje, 400)
                     eTitulo = Strings.Left(eTitulo, 100)
                 End If
-                Dim cadAdic = ""
+                eMensaje.Trim()
                 If eMensaje.Length > 0 Then
-                    cadAdic = "INSERT INTO " & rutaBD & ".mensajes_procesados (texto, canal, titulo, prioridad, fecha, mensaje) VALUES ('" & eMensaje & "', " & elmensaje!canaL & ", '" & eTitulo & "', " & elmensaje!prioridad & ", NOW(), " & elmensaje!id & ");"
+                    cadAdic = cadAdic & "INSERT INTO " & rutaBD & ".mensajes_procesados (texto, canal, titulo, prioridad, fecha, mensaje) VALUES ('" & eMensaje & "', " & elmensaje!canal & ", '" & eTitulo & "', 0, NOW(), " & elmensaje!id & ");"
                 End If
-                regsAfectados = consultaACT(cadAdic & "UPDATE " & rutaBD & ".mensajes SET estatus = 'E', enviada = NOW() WHERE estatus = '" & idProceso & "'")
             Next
+            regsAfectados = consultaACT(cadAdic & "UPDATE " & rutaBD & ".mensajes SET estatus = 'E', enviada = NOW() WHERE estatus = '" & idProceso & "'")
         End If
     End Sub
+
 
     Sub paseaStock()
         If modulos(4) = 0 Or Not estadoPrograma Then Exit Sub
@@ -4077,7 +4227,7 @@ Public Class    XtraForm1
 
         Dim regsAfectados = 0
         If errorBD.Length > 0 Then
-            agregarLOG("Ocurrió un error al intentar leer MySQL. Error: " + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
+            agregarLOG(traduccion(21) + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
         Else
             If reader.Tables(0).Rows.Count > 0 Then
                 For Each lotes In reader.Tables(0).Rows
@@ -4121,7 +4271,6 @@ Public Class    XtraForm1
                                 tiempo_sumar = tiempo_sumar + procesos.Tables(0).Rows(0)!tiempo_setup_idem
                             End If
                             If modulos(5) = 1 Then
-                                agregarSolo("Se valida módulo OAE")
                                 Dim validarParoWIP = False
                                 Dim tiempoParo = 0
                                 If lotes!paro_wip = "S" And ValNull(lotes!ultimo_parte, "N") = lotes!parte And procesos.Tables(0).Rows(0)!tiempo_setup_idem > 0 Then
@@ -4137,7 +4286,6 @@ Public Class    XtraForm1
                                     Dim bEquipo As DataSet = consultaSEL(cadSQL)
                                     If bEquipo.Tables(0).Rows.Count > 0 Then
                                         If bEquipo.Tables(0).Rows(0)!tlotes = 1 Then
-                                            agregarSolo("Se creó la solicitud de paro para change over")
                                             'Se solicita un paro no programado por change over
                                             regsAfectados = consultaACT("UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET wip_paro = 'S', wip_contador = " & procesos.Tables(0).Rows(0)!piezas_finalizar_paro & ", wip_tiempo = " & tiempoParo & " WHERE equipo = " & lotes!equipo)
                                         End If
@@ -4153,25 +4301,24 @@ Public Class    XtraForm1
 
                 Next
             End If
-            If pases > 0 Then agregarSolo("Se transfirieron " & pases & " lote(s) desde la situación En Espera a situación En Stock")
-            If realculoStock > 0 Then agregarSolo("Se recalculó la fecha de stock de " & realculoStock & " lote(s)")
-            If realculoEquipo > 0 Then agregarSolo("Se calculó la fecha de proceso de " & realculoEquipo & " lote(s)")
-            If pases > 0 Then agregarLOG("Se ha(n) transferido: " & pases & " lote(s) a la siguiente situación", 1, 1)
+            If pases > 0 Then agregarSolo(traduccion(96) & pases & traduccion(97))
+            If realculoStock > 0 Then agregarSolo(traduccion(98) & realculoStock & traduccion(99))
+            If realculoEquipo > 0 Then agregarSolo(traduccion(100) & realculoEquipo & traduccion(99))
+            If pases > 0 Then agregarLOG(traduccion(96) & pases & traduccion(101), 1, 1)
             'Se actualiza el catálogo de máquinas para indicarle si aún hay productos en la máquina
 
-            cadSQL = "SELECT a.id, b.paro_actual FROM " & rutaBD & ".cat_maquinas a LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas b ON a.id = b.equipo WHERE a.oee = 'S' AND a.id NOT IN (SELECT equipo FROM " & rutaBD & ".lotes WHERE estatus = 'A' AND estado = 50 AND equipo = a.id) AND a.oee_parte_actual <> 0"
+            cadSQL = "SELECT a.id, b.paro_actual, a.paro_wip FROM " & rutaBD & ".cat_maquinas a LEFT JOIN " & rutaBD & ".relacion_maquinas_lecturas b ON a.id = b.equipo WHERE a.oee = 'S' AND a.id NOT IN (SELECT equipo FROM " & rutaBD & ".lotes WHERE estatus = 'A' AND estado = 50) AND a.oee_parte_actual <> 0"
             reader = consultaSEL(cadSQL)
             If reader.Tables(0).Rows.Count > 0 Then
                 For Each lotes In reader.Tables(0).Rows
-                    agregarSolo("Se reinicia la máquina al no haber producto")
-                    regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas a SET oee_parte_actual = 0, oee_lote_actual = 0 WHERE id = " & lotes!id & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET produccion = 0, calidad = 0, produccion_tc = 0, calidad_tc = 0, buffer = 0, parosmostrar = 0, rate_mal_desde = NULL, rate_tendencia_baja = NULL, rate_tendencia_alta = NULL, ftq_tendencia_baja = NULL, oee_tendencia_baja = NULL, dis_tendencia_baja = NULL, efi_tendencia_baja = NULL, parada_desde = NULL, paro_actual = 0, ultima_reparacion = NULL, ultima_produccion = NOW(), alarmado_manual = 'N', ultima_buffer = NULL, iniciar = 'N', iniciar_1 = 'N', iniciar_2 = 'N', iniciar_3 = 'N', iniciar_4 = 'N', iniciar_5 = 'N', iniciar_6 = 'N', iniciar_7 = 'N', iniciar_8 = 'N', fecha_desde = NOW(), planeado = 'N', estado_desde = NOW(), desde_rate = NULL WHERE equipo = " & lotes!id)
+                    If lotes!paro_wip = "S" Then
+                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas a SET oee_parte_actual = 0, oee_lote_actual = 0 WHERE id = " & lotes!id & ";UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET produccion = 0, calidad = 0, produccion_tc = 0, calidad_tc = 0, buffer = 0, parosmostrar = 0, rate_mal_desde = NULL, rate_tendencia_baja = NULL, rate_tendencia_alta = NULL, ftq_tendencia_baja = NULL, oee_tendencia_baja = NULL, dis_tendencia_baja = NULL, efi_tendencia_baja = NULL, parada_desde = NULL, paro_actual = 0, ultima_reparacion = NULL, ultima_produccion = NOW(), alarmado_manual = 'N', ultima_buffer = NULL, iniciar = 'N', iniciar_1 = 'N', iniciar_2 = 'N', iniciar_3 = 'N', iniciar_4 = 'N', iniciar_5 = 'N', iniciar_6 = 'N', iniciar_7 = 'N', iniciar_8 = 'N', fecha_desde = NOW(), planeado = 'N', estado_desde = NOW(), desde_rate = NULL WHERE equipo = " & lotes!id)
 
-                    If lotes!paro_actual > 0 Then
-                        agregarSolo("Se cancela el paro anterior para habilitar el paro por máquina desocupada")
-                        regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = NOW(), hasta = NOW(), tiempo = TIME_TO_SEC(TIMEDIFF(NOW(), inicia)), finalizo = 1, finalizo_accion = 'O' WHERE id = " & lotes!paro_actual)
+                        If lotes!paro_actual > 0 Then
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".detalleparos SET estado = 'F', finaliza = NOW(), hasta = NOW(), tiempo = TIME_TO_SEC(TIMEDIFF(NOW(), inicia)), finalizo = 1, finalizo_accion = 'O' WHERE id = " & lotes!paro_actual)
+                        End If
+                        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, Estado, estatus, notas) VALUES (0, 0, " & miTurno & ", '" & traduccion(102) & "', 1, " & lotes!id & ", NOW(), 0, 1, NOW(), NOW(), 'C', 'A', '" & traduccion(103) & "');UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = NOW(), estado_desde = NOW() WHERE equipo = " & lotes!id)
                     End If
-                    agregarSolo("Se crea paro por máquina desocupada")
-                    regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".detalleparos (parte, lote, turno, paro, clase, maquina, fecha, tiempo, inicio, inicia, desde, Estado, estatus, notas) VALUES (0, 0, " & miTurno & ", 'SE REQUIERE PROCESAR LOTE', 1, " & lotes!id & ", NOW(), 0, 1, NOW(), NOW(), 'C', 'A', 'Este paro se genera automáticamente cuando la máquina se queda sin un número de parte');UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET estatus = 'D', parada_desde  = NOW(), estado_desde = NOW() WHERE equipo = " & lotes!id)
                 Next
             End If
         End If
@@ -4201,7 +4348,7 @@ Public Class    XtraForm1
         cadSQL = "SELECT a.id, a.equipo, b.parte, b.cantidad, c.proceso FROM " & rutaBD & ".cargas a INNER JOIN " & rutaBD & ".programacion b ON a.id = b.carga AND b.estatus = 'A' LEFT JOIN " & rutaBD & ".cat_maquinas c ON a.equipo = c.id AND c.estatus = 'A' WHERE a.estatus = 'A' AND completada <> 'Y' ORDER BY a.fecha ASC"
         Dim reader As DataSet = consultaSEL(cadSQL)
         If errorBD.Length > 0 Then
-            agregarLOG("Ocurrió un Error al intentar leer MySQL. Error: " + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
+            agregarLOG(traduccion(21) + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
         Else
 
             If reader.Tables(0).Rows.Count > 0 Then
@@ -4254,7 +4401,7 @@ Public Class    XtraForm1
                 Next
             End If
             If pases > 0 Then
-                agregarLOG("Se ha(n) asignado: " & pases & " cargas de programación", 1, 1)
+                agregarLOG(traduccion(104).Replace("campo_0", pases), 1, 1)
             End If
         End If
 
@@ -4275,7 +4422,7 @@ Public Class    XtraForm1
         Dim pases2 = 0
 
         If errorBD.Length > 0 Then
-            agregarLOG("Ocurrió un error al intentar leer MySQL. Error: " + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
+            agregarLOG(traduccion(21) + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
         Else
             If reader.Tables(0).Rows.Count > 0 Then
                 For Each lotes In reader.Tables(0).Rows
@@ -4286,8 +4433,9 @@ Public Class    XtraForm1
                     If procesos.Tables(0).Rows.Count > 0 Then
                         Dim tiempoEstimadoTotal = 0
                         For Each operaciones In procesos.Tables(0).Rows
-                            fechaHasta = calcularFechaEstimada(fechaInicial, operaciones!tiempo_stock, operaciones!proceso)
+                            'fechaHasta = calcularFechaEstimada(fechaInicial, operaciones!tiempo_stock, operaciones!proceso)
                             fechaHasta = calcularFechaEstimada(fechaHasta, operaciones!tiempo_proceso + operaciones!tiempo_setup, operaciones!proceso)
+                            regsAfectados = consultaACT("UPDATE " & rutaBD & ".ruta_congelada SET inicia = " & DateAndTime.DateDiff(DateInterval.Second, lotes!inicia, fechaHasta) & ", estimada = '" & Format(fechaInicial, "yyyy/MM/dd HH:mm:ss") & "', calcular_hasta = 'N' WHERE id = " & lotes!id)
                             fechaInicial = fechaHasta
                         Next
                         pases1 = pases1 + 1
@@ -4301,7 +4449,7 @@ Public Class    XtraForm1
         reader = consultaSEL(cadSQL)
         regsAfectados = 0
         If errorBD.Length > 0 Then
-            agregarLOG("Ocurrió un error al intentar leer MySQL. Error: " + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
+            agregarLOG(traduccion(21) + Microsoft.VisualBasic.Strings.Left(errorBD, 250), 9, 0)
         Else
             Dim pases = 0
             If reader.Tables(0).Rows.Count > 0 Then
@@ -4312,16 +4460,14 @@ Public Class    XtraForm1
                 Next
             End If
         End If
-        If pases1 > 0 Then agregarSolo("Se calculó el estimado de fecha de entrega para " & pases1 & " lote(s)")
-        If pases2 > 0 Then agregarSolo("Se calculó el estimado de fecha de entrega para " & pases2 & "  histórico de lote(s)")
+        If pases1 > 0 Then agregarSolo(traduccion(105) & pases1 & traduccion(99))
+        If pases2 > 0 Then agregarSolo(traduccion(105) & pases2 & traduccion(106))
     End Sub
 
 
-    Private Sub cincoBotones_Tick(sender As Object, e As EventArgs) Handles cincoBotones.Tick
+    Private Sub cincoBotones_Tick(sender As Object, e As EventArgs)
         If cincoBotProcesando Or Not estadoPrograma Then Exit Sub
-
         cincoBotProcesando = True
-        cincoBotones.Enabled = False
 
         Dim cadSQL = "SELECT id, start_time, requester, requester_key FROM " & rutaMMCALL & ".records WHERE ISNULL(end_time)"
         Dim cadAgregar = ""
@@ -4341,79 +4487,130 @@ Public Class    XtraForm1
 
 
         If registros.Tables(0).Rows.Count > 0 Then
-            cadSQL = "SELECT mover, usuario FROM " & rutaBD & ".cat_turnos WHERE id = " & be_turno_actual
-            Dim horarios As DataSet = consultaSEL(cadSQL)
-            If horarios.Tables(0).Rows.Count > 0 Then
-                If ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 1 Then
-                    restar = -1
-                ElseIf ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 2 Then
-                    restar = 0
-                End If
-                idUSuario = ValNull(horarios.Tables(0).Rows(0)!usuario, "N")
-
-            End If
-
             For Each registro In registros.Tables(0).Rows
+
                 cadSQL = "SELECT record, estatus FROM " & rutaBD & ".temporal_mmcall WHERE record = " & registro!id
                 pendiente = consultaSEL(cadSQL)
                 If pendiente.Tables(0).Rows.Count = 0 Then
+
                     Dim fechaReporte = registro!start_time
-                    If restar <> 0 Then
-                        fechaReporte = DateAdd(DateInterval.Day, restar, fechaReporte)
+                    cadSQL = "SELECT * FROM " & rutaBD & ".cat_turnos WHERE id = " & be_turno_actual
+                    Dim horarios As DataSet = consultaSEL(cadSQL)
+                    If horarios.Tables(0).Rows.Count > 0 Then
+                        If ValNull(horarios.Tables(0).Rows(0)!cambiodia, "A") = "S" Then
+
+                            If ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 1 And Format(fechaReporte, "HH") >= "00" And Format(fechaReporte, "HH:mm:ss") < horarios.Tables(0).Rows(0)!termina.ToString Then
+                                fechaReporte = DateAdd(DateInterval.Day, -1, fechaReporte)
+                            ElseIf ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 2 And Format(fechaReporte, "HH:mm:ss") >= horarios.Tables(0).Rows(0)!inicia.ToString And Format(fechaReporte, "HHmmss") <= "235959" Then
+                                fechaReporte = DateAdd(DateInterval.Day, 1, fechaReporte)
+                            End If
+                        End If
+                        idUSuario = ValNull(horarios.Tables(0).Rows(0)!usuario, "N")
                     End If
                     idMaquina = 0
                     idLinea = 0
                     idArea = 0
                     Dim tipo_andon = 0
                     'Se busca máquina/línea
-                    cadSQL = "SELECT id, id_mmcall, linea, usuario, tipo_andon FROM " & rutaBD & ".cat_maquinas WHERE estatus = 'A' AND NOT ISNULL(id_mmcall) ORDER BY id"
+                    cadSQL = "SELECT id, nombre, id_mmcall, linea, usuario, tipo_andon FROM " & rutaBD & ".cat_maquinas WHERE estatus = 'A' AND NOT ISNULL(id_mmcall) ORDER BY id_mmcall DESC, id"
                     general = consultaSEL(cadSQL)
                     If general.Tables(0).Rows.Count > 0 Then
+                        Dim mHallada = False
                         For Each maquinas In general.Tables(0).Rows
                             If ValNull(maquinas!id_mmcall, "A") <> "" Then
-
                                 Dim arreCanales = maquinas!id_mmcall.Split(New Char() {";"c})
                                 For i = LBound(arreCanales) To UBound(arreCanales)
-                                    If Microsoft.VisualBasic.Strings.UCase(arreCanales(i)) = Microsoft.VisualBasic.Strings.UCase(registro!requester) Then
+                                    Dim reqMaquina = Strings.Trim(arreCanales(i)).ToUpper
+                                    Dim reqMMCall = Strings.Trim(registro!requester).ToUpper
+
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCrLf, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCr, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbLf, "")
+                                    If reqMaquina = reqMMCall Then
+
                                         idMaquina = maquinas!id
                                         idLinea = maquinas!linea
                                         If ValNull(maquinas!usuario, "N") > 0 Then
                                             idUSuario = ValNull(maquinas!usuario, "N")
                                         End If
                                         tipo_andon = ValNull(maquinas!tipo_andon, "N")
+                                        mHallada = True
                                         Exit For
                                     End If
                                 Next
+                                If mHallada Then Exit For
                             End If
                         Next
+
                     End If
+
                     'Se busca área
-                    cadSQL = "SELECT id, id_mmcall FROM " & rutaBD & ".cat_areas WHERE estatus = 'A' AND NOT ISNULL(id_mmcall) ORDER BY id"
+                    cadSQL = "SELECT id, id_mmcall, botoneras FROM " & rutaBD & ".cat_areas WHERE estatus = 'A' AND NOT ISNULL(id_mmcall) ORDER BY botoneras DESC, id_mmcall DESC, id"
                     general = consultaSEL(cadSQL)
                     If general.Tables(0).Rows.Count > 0 Then
+                        Dim aHallada = False
+                        Dim bHallada = False
                         For Each maquinas In general.Tables(0).Rows
-                            If ValNull(maquinas!id_mmcall, "A") <> "" Then
-                                Dim arreCanales = maquinas!id_mmcall.Split(New Char() {";"c})
+                            If ValNull(maquinas!botoneras, "A") <> "" Then
+                                Dim arreCanales = maquinas!botoneras.Split(New Char() {";"c})
                                 For i = LBound(arreCanales) To UBound(arreCanales)
-                                    If tipo_andon = 2 Then
-                                        If Microsoft.VisualBasic.Strings.UCase(arreCanales(i)) = Microsoft.VisualBasic.Strings.UCase(registro!requester_key) Then
+                                    Dim reqMaquina = Strings.Trim(arreCanales(i)).ToUpper
+                                    Dim reqMMCall = Strings.Trim(registro!requester).ToUpper
+
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCrLf, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCr, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbLf, "")
+                                    If reqMaquina = reqMMCall Then
+                                        bHallada = True
+                                        Exit For
+                                    End If
+                                Next
+                            Else
+                                bHallada = True
+                            End If
+                            If ValNull(maquinas!id_mmcall, "A") <> "" And bHallada Then
+                                Dim arreCanales = maquinas!id_mmcall.Split(New Char() {";"c})
+
+                                For i = LBound(arreCanales) To UBound(arreCanales)
+                                    Dim reqBotonera = Strings.Trim(arreCanales(i)).ToUpper
+                                    Dim reqMaquina = Strings.Trim(arreCanales(i)).ToUpper
+                                    Dim reqMMCall = Strings.Trim(registro!requester_key).ToUpper
+                                    Dim reqMMCall2 = Strings.Trim(registro!requester).ToUpper
+
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCrLf, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbCr, "")
+                                    reqMaquina = Strings.Replace(reqMaquina, vbLf, "")
+                                    If tipo_andon = 2 Then '5 botones
+                                        If Strings.InStr(reqMaquina, "(") > 0 Then
+                                            'Extraer botonera y botón
+                                            reqBotonera = Strings.Left(reqMaquina, Strings.InStr(reqMaquina, "(") - 1)
+                                            reqMaquina = Strings.Mid(reqMaquina, Strings.InStr(reqMaquina, "(") + 1, 1)
+                                            If Val(reqMaquina) = Val(reqMMCall) And reqBotonera = reqMMCall2 Then
+                                                idArea = maquinas!id
+                                                aHallada = True
+                                                Exit For
+                                            End If
+                                        ElseIf reqMaquina = reqMMCall Then
                                             idArea = maquinas!id
+                                            aHallada = True
                                             Exit For
                                         End If
                                     ElseIf tipo_andon = 1 Then
-                                        If Microsoft.VisualBasic.Strings.UCase(arreCanales(i)) = Microsoft.VisualBasic.Strings.UCase(registro!requester) Then
+                                        If reqMaquina = reqMMCall2 Then
+                                            aHallada = True
                                             idArea = maquinas!id
                                             Exit For
                                         End If
                                     End If
                                 Next
+                                If aHallada Then Exit For
 
                             End If
                         Next
                     End If
                     'Se agrega el registro en la tabla de reportes
                     reportesCreados = reportesCreados + 1
-                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".reportes (linea, maquina, area, falla, falla_ajustada, solicitante, turno, fecha_reporte, fecha, mmcall, origen) VALUES(" & idLinea & ", " & idMaquina & ", " & idArea & ", 0, 0, 1, " & be_turno_actual & ", '" & Format(fechaReporte, "yyyy/MM/dd") & "', '" & Format(fechaReporte, "yyyy/MM/dd HH:mm:ss") & "', NOW(), " & registro!id & ")"
+                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".reportes (linea, maquina, area, falla, falla_ajustada, solicitante, turno, fecha_reporte, fecha, mmcall, origen) VALUES(" & idLinea & ", " & idMaquina & ", " & idArea & ", 0, 0, " & IIf(idUSuario = 0, 1, idUSuario) & ", " & be_turno_actual & ", '" & Format(fechaReporte, "yyyy/MM/dd") & "', '" & Format(fechaReporte, "yyyy/MM/dd HH:mm:ss") & "', NOW(), " & registro!id & ")"
                     cadAgregar = cadAgregar & ";INSERT INTO " & rutaBD & ".temporal_mmcall (record, boton1) VALUES(" & registro!id & ", '" & Format(registro!start_time, "yyyy/MM/dd HH:mm:ss") & "');"
                 End If
             Next
@@ -4421,10 +4618,11 @@ Public Class    XtraForm1
                 cadAgregar = Microsoft.VisualBasic.Strings.Mid(cadAgregar, 1, Len(cadAgregar) - 1)
                 regsAfectados = consultaACT(cadAgregar)
                 If reportesCreados > 0 Then
-                    agregarLOG("Se han creado " & reportesCreados & " reportes desde ANDON manual", 0, 0)
+                    agregarLOG(traduccion(172).Replace("campo_0", reportesCreados), 0, 0)
                 End If
             End If
         End If
+
 
 
         'Se revisa de reversa (cierre de tickets)
@@ -4436,27 +4634,60 @@ Public Class    XtraForm1
             For Each registro In registros.Tables(0).Rows
                 cadSQL = "SELECT end_time FROM " & rutaMMCALL & ".records WHERE id = " & registro!record & " AND NOT ISNULL(end_time)"
                 pendiente = consultaSEL(cadSQL)
+                cadSQL = "SELECT a.area, b.tecnico, b.falla, b.cerrar_boton FROM " & rutaBD & ".reportes a INNER JOIN " & rutaBD & ".cat_areas b ON a.area = b.id WHERE a.origen = " & registro!record
+                general = consultaSEL(cadSQL)
+                Dim accion = "N"
+                Dim tecnico = 0
+                Dim falla = 0
+                Dim fANDON = Format(DateAndTime.Now, "yyyy/MM/dd HH:mm:ss")
+                If general.Tables(0).Rows.Count > 0 Then
+                    accion = ValNull(general.Tables(0).Rows(0)!cerrar_boton, "A")
+                    tecnico = ValNull(general.Tables(0).Rows(0)!tecnico, "N")
+                    falla = ValNull(general.Tables(0).Rows(0)!falla, "N")
+                End If
                 If pendiente.Tables(0).Rows.Count > 0 Then
+                    Dim fMMcall = Format(pendiente.Tables(0).Rows(0)!end_time, "yyyy/MM/dd HH:mm:ss")
                     reportesCreados = reportesCreados + 1
-                    'Se agrega el registro en la tabla de reportes
-                    cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 10, inicio_atencion = '" & Format(pendiente.Tables(0).Rows(0)!end_time, "yyyy/MM/dd HH:mm:ss") & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & Format(pendiente.Tables(0).Rows(0)!end_time, "yyyy/MM/dd HH:mm:ss") & "', fecha)) WHERE origen = " & registro!record
+                    'Se valida si se cierra el reporte o no
+                    If accion = "N" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 10, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)) WHERE origen = " & registro!record
+                    ElseIf accion = "R" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 100, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), cierre_atencion = '" & fMMcall & "', tiemporeparacion = 0, inicio_reporte = NOW(), detalle = '" & traduccion(107) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), falla = " & falla & ", falla_ajustada = " & falla & ", tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE origen = " & registro!record
+                    ElseIf accion = "C" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 1000, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), cierre_atencion = '" & fMMcall & "', tiemporeparacion = 0, tiemporeporte = 0, inicio_reporte = '" & fMMcall & "', cierre_reporte = '" & fMMcall & "', detalle = '" & traduccion(108) & "', comentarios = '" & traduccion(108) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), falla = " & falla & ", falla_ajustada = " & falla & ", tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE origen = " & registro!record
+                    End If
                     cadAgregar = cadAgregar & ";UPDATE " & rutaBD & ".temporal_mmcall SET estatus = 1 WHERE record = " & registro!record & ";"
+                Else
+                    cadSQL = "SELECT end_time FROM " & rutaMMCALL & ".records WHERE id = " & registro!record
+                    pendiente = consultaSEL(cadSQL)
+                    If pendiente.Tables(0).Rows.Count = 0 Then
+                        'Se eliminó el registro
+                        reportesCreados = reportesCreados + 1
+                        If accion = "N" Then
+                            cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 10, inicio_atencion = '" & fANDON & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fANDON & "', fecha)) WHERE origen = " & registro!record
+                        ElseIf accion = "R" Then
+                            cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 100, inicio_atencion = '" & fANDON & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fANDON & "', fecha)), cierre_atencion = '" & fANDON & "', tiemporeparacion = 0, inicio_reporte = NOW(), detalle = '" & traduccion(107) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fANDON & "', fecha)), falla = " & falla & ", falla_ajustada = " & falla & ", tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE origen = " & registro!record
+                        ElseIf accion = "C" Then
+                            cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 1000, inicio_atencion = '" & fANDON & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fANDON & "', fecha)), cierre_atencion = '" & fANDON & "', tiemporeparacion = 0, tiemporeporte = 0, inicio_reporte = '" & fANDON & "', cierre_reporte = '" & fANDON & "', detalle = '" & traduccion(108) & "', comentarios = '" & traduccion(108) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fANDON & "', fecha)), falla = " & falla & ", falla_ajustada = " & falla & ", tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE origen = " & registro!record
+                        End If
+                        'Se agrega el registro en la tabla de reportes
+                        cadAgregar = cadAgregar & ";UPDATE " & rutaBD & ".temporal_mmcall SET estatus = 1 WHERE record = " & registro!record & ";"
+                    End If
                 End If
             Next
             If cadAgregar.Length > 0 Then
                 cadAgregar = Microsoft.VisualBasic.Strings.Mid(cadAgregar, 1, Len(cadAgregar) - 1)
                 regsAfectados = consultaACT(cadAgregar)
                 If reportesCreados > 0 Then
-                    agregarLOG("Se han CERRADO " & reportesCreados & " reportes desde ANDON manual", 0, 0)
+                    agregarLOG(traduccion(173).Replace("campo_0", reportesCreados), 0, 0)
                 End If
             End If
         End If
 
         cincoBotProcesando = False
-        cincoBotones.Enabled = True
     End Sub
 
-    Private Sub tmpPrueba_Tick(sender As Object, e As EventArgs) Handles tmpPrueba.Tick
+    Private Sub tmpPrueba_Tick(sender As Object, e As EventArgs)
 
         If modulos(5) = 0 Or Not estadoPrograma Then Exit Sub
 
@@ -4479,7 +4710,7 @@ Public Class    XtraForm1
                                 cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET velocidad = '" & dialogos(2) & "' WHERE equipo = " & equipo & ";"
                             ElseIf dialogos(1) = "000020" Then
                                 If dialogos(2) = "0" Then
-                                    cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET detener = 1, detener_estimado = 1800, detener_tipo = 1, detener_notas = 'PARO DESDE LA MAQUINA', detener_area = 1, detener_piezas = 'S', detener_paro = 'PARO DESDE LA MAQIINA' WHERE equipo = " & equipo & ";"
+                                    cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET detener = 1, detener_estimado = 1800, detener_tipo = 1, detener_notas = '" & traduccion(109) & "', detener_area = 1, detener_piezas = 'S', detener_paro = '" & traduccion(109) & "' WHERE equipo = " & equipo & ";"
                                 Else
                                     cadSQL = "UPDATE " & rutaBD & ".relacion_maquinas_lecturas SET reanudar = 1 WHERE equipo = " & equipo & ";"
                                 End If
@@ -4497,29 +4728,318 @@ Public Class    XtraForm1
 
             Next
         End If
+    End Sub
+
+    Private Sub checklist_Tick(sender As Object, e As EventArgs)
+        If botCheckList Or Not estadoPrograma Then Exit Sub
+        botCheckList = True
 
 
+        Dim eMensaje = ""
+        'Escalada 4
+        Dim regsAfectados = 0
+
+        Dim maximo_largo_mmcall As Integer = 40
+
+        Dim cadSQL As String = "SELECT * FROM " & rutaBD & ".plan_checklists WHERE anticipacion = 'S' AND estatus = 'A' AND (ISNULL(anticipado) OR anticipado <> CURDATE()) AND DATE_ADD(hora, INTERVAL tiempo * -1 SECOND) <= CURTIME()"
+        Dim planes = consultaSEL(cadSQL)
+
+        Dim idAlerta = 0
+        Dim regsAfectadosT As Boolean = False
+
+        'If planes.Tables(0).Rows.Count > 0 Then
+        '    For Each plan In planes.Tables(0).Rows
+        '        Dim enviarDia As Boolean = False
+        '        Dim diaSemana = DateAndTime.Weekday(Now)
+        '        If plan!frecuencia = "T" Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "LV" And diaSemana >= 2 And diaSemana <= 6 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "L" And diaSemana = 2 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "M" And diaSemana = 3 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "MI" And diaSemana = 4 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "J" And diaSemana = 5 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "V" And diaSemana = 6 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "S" And diaSemana = 7 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "D" And diaSemana = 1 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "1M" And Val(Today.Day) = 1 Then
+        '            enviarDia = True
+        '        ElseIf plan!frecuencia = "UM" And Val(Today.Day) = Date.DaysInMonth(Today.Year, Today.Month) Then
+        '            enviarDia = True
+        '        End If
+
+        '        If enviarDia Then
+        '            Dim filtroAdic As String = ""
+
+        '            If plan!tipo <> 0 Then
+        '                filtroAdic = " AND a.tipo = " & plan!tipo
+        '            End If
+        '            If plan!checklists <> "S" Then
+        '                cadSQL = "SELECT a.*, b.recipiente FROM " & rutaBD & ".det_plan_checklists a INNER JOIN " & rutaBD & ".cat_checklists b ON a.checklist = b.id AND b.estatus = 'A'" & filtroAdic & " WHERE a.plan = " & plan!id
+        '            Else
+        '                cadSQL = "SELECT a.id AS checklist, a.recipiente FROM " & rutaBD & ".cat_checklists a WHERE a.estatus = 'A' " & filtroAdic
+        '            End If
+        '            Dim checklists = consultaSEL(cadSQL)
 
 
+        '            If checklists.Tables(0).Rows.Count > 0 Then
+        '                Dim cadAgregar As String = ""
+        '                For Each cl In checklists.Tables(0).Rows
+        '                    If ValNull(plan!llamada, "A") = "S" Then
+        '                        cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 0, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 0);"
+        '                    End If
+        '                    If ValNull(plan!sms, "A") = "S" Then
+        '                        cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 1, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 0);"
+        '                    End If
+        '                    If ValNull(plan!correo, "A") = "S" Then
+        '                        cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 2, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 0);"
+        '                    End If
+        '                    If ValNull(plan!mmcall, "A") = "S" Then
+        '                        cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 3, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 0);"
+        '                    End If
+        '                    If plan!asignacion > 1 Then
+        '                        If plan!asignadores = "N" And plan!asignacion = 4 Then
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.id = b.registro AND b.tipo = 4 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+        '                        ElseIf plan!asignadores = "N" And plan!asignacion = 3 Then
+        '                            'Puestos de trabajo
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.cargo = b.registro AND b.tipo = 3 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+        '                        ElseIf plan!asignadores = "N" And plan!asignacion = 2 Then
+        '                            'Departamentos
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.departamento = b.registro AND b.tipo = 2 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+        '                        ElseIf plan!asignadores = "S" And plan!asignacion = 4 Then
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a WHERE a.estatus = 'A'"
+        '                        ElseIf plan!asignadores = "S" And plan!asignacion = 3 Then
+        '                            'Puestos de trabajo
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".cat_generales b ON a.cargo = b.id AND b.estatus = 'A' WHERE a.estatus = 'A' "
+        '                        ElseIf plan!asignadores = "S" And plan!asignacion = 2 Then
+        '                            'Departamentos
+        '                            cadSQL = "SELECT a.correo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".cat_generales b ON a.departamento = b.id AND b.estatus = 'A' WHERE a.estatus = 'A'"
+        '                        End If
+        '                        'Se buscan todos los departamentos
+        '                        Dim correos = consultaSEL(cadSQL)
+        '                        Dim cadCorreos As String = ""
 
+        '                        If correos.Tables(0).Rows.Count > 0 Then
+        '                            For Each correo In correos.Tables(0).Rows
+        '                                If ValNull(correo!correo, "A") <> "" Then
+        '                                    cadCorreos = cadCorreos & correo!correo & ";"
+        '                                End If
+        '                            Next
+        '                        End If
+        '                        If cadCorreos.Length > 0 Then
+
+        '                            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-2000, 2, " & cl!checklist & ", " & plan!id & ", 0, 0);")
+        '                            Dim reader As DataSet = consultaSEL("SELECT LAST_INSERT_ID();")
+        '                            If reader.Tables(0).Rows.Count > 0 Then
+        '                                If ValNull(reader.Tables(0).Rows(0).Item(0), "N") > 0 Then
+        '                                    regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".checklist_correos (mensaje, correos) VALUES (" & reader.Tables(0).Rows(0).Item(0) & ", '" & cadCorreos & "')")
+        '                                    regsAfectadosT = True
+        '                                End If
+        '                            End If
+        '                        End If
+        '                    End If
+        '                Next
+        '                If cadAgregar.Length > 0 Then
+        '                    cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".plan_checklists SET anticipado = NOW() WHERE id = " & plan!id
+        '                    regsAfectados = consultaACT(cadAgregar)
+        '                    regsAfectadosT = True
+        '                End If
+        '            End If
+        '        End If
+
+        '    Next
+        'End If
+
+        'Checklist listo
+
+        cadSQL = "SELECT * FROM " & rutaBD & ".plan_checklists WHERE estatus = 'A' AND (ISNULL(ejecutado) OR ejecutado <> CURDATE())"
+        planes = consultaSEL(cadSQL)
+
+        If planes.Tables(0).Rows.Count > 0 Then
+            Dim eFecha As String = Format(DateAndTime.Now(), "yyyy/MM/dd HH:mm:ss")
+            For Each plan In planes.Tables(0).Rows
+                Dim enviarDia As Boolean = False
+                Dim diaSemana = DateAndTime.Weekday(Now)
+                If plan!frecuencia = "T" Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "LV" And diaSemana >= 2 And diaSemana <= 6 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "L" And diaSemana = 2 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "M" And diaSemana = 3 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "MI" And diaSemana = 4 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "J" And diaSemana = 5 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "V" And diaSemana = 6 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "S" And diaSemana = 7 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "D" And diaSemana = 1 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "1M" And Val(Today.Day) = 1 Then
+                    enviarDia = True
+                ElseIf plan!frecuencia = "UM" And Val(Today.Day) = Date.DaysInMonth(Today.Year, Today.Month) Then
+                    enviarDia = True
+                End If
+
+                If enviarDia Then
+                    enviarDia = Strings.Left(plan!hora.ToString(), 2) = Strings.Left(Format(Now(), "HH"), 2)
+                End If
+
+                If enviarDia Then
+                    Dim filtroAdic As String = ""
+
+                    If plan!tipo <> 0 Then
+                        filtroAdic = " AND a.tipo = " & plan!tipo
+                    End If
+                    If plan!checklists <> "S" Then
+                        cadSQL = "SELECT a.*, b.recipiente, b.tiempo FROM " & rutaBD & ".det_plan_checklists a INNER JOIN " & rutaBD & ".cat_checklists b ON a.checklist = b.id AND b.estatus = 'A'" & filtroAdic & " WHERE a.plan = " & plan!id
+                    Else
+                        cadSQL = "SELECT a.id AS checklist, a.recipiente, a.tiempo FROM " & rutaBD & ".cat_checklists a WHERE a.estatus = 'A' " & filtroAdic
+                    End If
+                    Dim checklists = consultaSEL(cadSQL)
+
+
+                    If checklists.Tables(0).Rows.Count > 0 Then
+                        Dim cadAgregar As String = ""
+                        For Each cl In checklists.Tables(0).Rows
+                            Dim cadCorreos As String = ""
+
+                            'Se llena una sola vez el recorset del checklist
+                            cadSQL = "SELECT * FROM " & rutaBD & ".det_checklist WHERE checklist = " & cl!checklist & " ORDER BY orden"
+                            Dim variables As DataSet = consultaSEL(cadSQL)
+                            Dim cadDetalle As String = ""
+                            If variables.Tables(0).Rows.Count > 0 Then
+                                cadDetalle = "INSERT INTO " & rutaBD & ".checkeje_det (checklist, variable, orden) VALUES "
+                                For Each variable In variables.Tables(0).Rows
+                                    cadDetalle = cadDetalle & "(#Checklist#, " & variable!variable & ", " & variable!orden & "),"
+                                Next
+                                cadDetalle = Strings.Left(cadDetalle, cadDetalle.Length - 1)
+                            End If
+                            Dim vencimiento = ""
+
+                            If cl!tiempo > 0 Then
+                                vencimiento = Format(calcularFechaEstimada(Now, cl!tiempo, -1), "yyyy/MM/dd HH:mm:ss")
+                            End If
+                            If plan!ejecucion = "S" Then
+                                If ValNull(plan!llamada2, "A") = "S" Then
+                                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 0, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 1)"
+                                End If
+                                If ValNull(plan!sms2, "A") = "S" Then
+                                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 1, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 1)"
+                                End If
+                                If ValNull(plan!correo2, "A") = "S" Then
+                                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 2, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 1)"
+                                End If
+                                If ValNull(plan!mmcall2, "A") = "S" Then
+                                    cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-1000, 3, " & cl!checklist & ", " & plan!id & ", " & cl!recipiente & ", 1)"
+                                End If
+                            End If
+
+                            If plan!asignacion > 1 Then
+                                If plan!asignadores = "N" And plan!asignacion = 4 Then
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.id = b.registro AND b.tipo = 4 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+                                ElseIf plan!asignadores = "N" And plan!asignacion = 3 Then
+                                    'Puestos de trabajo
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.cargo = b.registro AND b.tipo = 3 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+                                ElseIf plan!asignadores = "N" And plan!asignacion = 2 Then
+                                    'Departamentos
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".relacion_plan_checklists b ON a.departamento = b.registro AND b.tipo = 2 AND b.plan = " & plan!id & " WHERE a.estatus = 'A'"
+                                ElseIf plan!asignadores = "S" And plan!asignacion = 4 Then
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a WHERE a.estatus = 'A'"
+                                ElseIf plan!asignadores = "S" And plan!asignacion = 3 Then
+                                    'Puestos de trabajo
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".cat_generales b ON a.cargo = b.id AND b.estatus = 'A' WHERE a.estatus = 'A' "
+                                ElseIf plan!asignadores = "S" And plan!asignacion = 2 Then
+                                    'Departamentos
+                                    cadSQL = "SELECT a.correo, a.id, a.departamento, a.cargo FROM " & rutaBD & ".cat_usuarios a INNER JOIN " & rutaBD & ".cat_generales b ON a.departamento = b.id AND b.estatus = 'A' WHERE a.estatus = 'A'"
+                                End If
+                                'Se buscan todos los departamentos
+                                Dim correos = consultaSEL(cadSQL)
+
+
+                                If correos.Tables(0).Rows.Count > 0 Then
+                                    For Each correo In correos.Tables(0).Rows
+                                        If ValNull(correo!correo, "A") <> "" Then
+                                            cadCorreos = cadCorreos & correo!correo & ";"
+                                        End If
+                                        'Se crean los checklist por usuario
+                                        Dim nuevoID = 1
+                                        'Se crean los checklist
+                                        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".checkeje_cab (checklist, plan, vence, frecuencia, asignado_a, asignado_original, departamento, cargo, tipo_asignacion, creado, modificado, creacion, modificacion) VALUES (" & cl!checklist & ", " & plan!id & ", " & IIf(vencimiento = "", "null", "'" & vencimiento & "'") & ", '" & plan!frecuencia & "', " & correo!id & ", " & correo!id & ", " & correo!departamento & ", " & correo!cargo & ", " & plan!asignacion & ", 1, 1, '" & eFecha & "', '" & eFecha & "');")
+                                        Dim bNumero As DataSet = consultaSEL("SELECT MAX(id) FROM " & rutaBD & ".checkeje_cab")
+                                        If bNumero.Tables(0).Rows.Count > 0 Then
+                                            nuevoID = ValNull(bNumero.Tables(0).Rows(0).Item(0), "N")
+                                            regsAfectados = consultaACT(cadDetalle.Replace("#Checklist#", nuevoID))
+                                        End If
+                                    Next
+                                End If
+                            Else
+                                If plan!asignadores = "N" And plan!asignacion = 0 Then
+                                    cadSQL = "SELECT b.id AS departamento, 0 AS cargo FROM " & rutaBD & ".relacion_plan_checklists a INNER JOIN " & rutaBD & ".cat_generales b ON a.registro = b.id AND b.estatus = 'A' WHERE a.tipo = 0 AND a.plan = " & plan!id
+                                ElseIf plan!asignadores = "S" And plan!asignacion = 0 Then
+                                    'Puestos de trabajo
+                                    cadSQL = "SELECT a.id AS departamento, 0 AS cargo FROM " & rutaBD & ".cat_generales WHERE tabla = 70 AND estatus = 'A'"
+                                ElseIf plan!asignadores = "N" And plan!asignacion = 1 Then
+                                    cadSQL = "SELECT b.id AS cargo, 0 AS departamento FROM " & rutaBD & ".relacion_plan_checklists a INNER JOIN " & rutaBD & ".cat_generales b ON a.registro = b.id AND b.estatus = 'A' WHERE a.tipo = 1 AND a.plan = " & plan!id
+                                ElseIf plan!asignadores = "S" And plan!asignacion = 1 Then
+                                    'Puestos de trabajo
+                                    cadSQL = "SELECT a.id AS cargo, 0 AS departamento FROM " & rutaBD & ".cat_generales WHERE tabla = 130 AND estatus = 'A'"
+                                End If
+
+                                Dim correos = consultaSEL(cadSQL)
+                                If correos.Tables(0).Rows.Count > 0 Then
+                                    For Each correo In correos.Tables(0).Rows
+                                        'Se crean los checklist por registro
+                                        Dim nuevoID = 1
+                                        'Se crean los checklist
+                                        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".checkeje_cab (checklist, plan, vence, frecuencia, departamento, cargo, tipo_asignacion, creado, modificado, creacion, modificacion) VALUES (" & cl!checklist & ", " & plan!id & ", " & IIf(vencimiento = "", "null", vencimiento) & ", '" & plan!frecuencia & "', " & correo!departamento & ", " & correo!cargo & ", " & plan!asignacion & ", 1, 1, '" & eFecha & "', '" & eFecha & "');")
+                                        Dim bNumero As DataSet = consultaSEL("SELECT MAX(id) FROM " & rutaBD & ".checkeje_cab")
+                                        If bNumero.Tables(0).Rows.Count > 0 Then
+                                            nuevoID = ValNull(bNumero.Tables(0).Rows(0).Item(0), "N")
+                                            regsAfectados = consultaACT(cadDetalle.Replace("#Checklist#", nuevoID))
+                                        End If
+                                    Next
+                                End If
+                            End If
+
+                            If cadCorreos.Length > 0 And plan!ejecucion = "S" Then
+                                regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".mensajes (alerta, canal, proceso, prioridad, lista, alarma) VALUES (-2000, 2, " & cl!checklist & ", " & plan!id & ", 0, 1);")
+                                Dim reader As DataSet = consultaSEL("SELECT MAX(id) FROM " & rutaBD & ".mensajes")
+                                If reader.Tables(0).Rows.Count > 0 Then
+                                    If ValNull(reader.Tables(0).Rows(0).Item(0), "N") > 0 Then
+                                        regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".checklist_correos (mensaje, correos) VALUES (" & reader.Tables(0).Rows(0).Item(0) & ", '" & cadCorreos & "')")
+                                        regsAfectadosT = True
+                                    End If
+                                End If
+                            End If
+                        Next
+                        If cadAgregar.Length > 0 Then
+                            cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".plan_checklists SET ejecutado = NOW() WHERE id = " & plan!id
+                            regsAfectados = consultaACT(cadAgregar)
+                            regsAfectadosT = True
+                        End If
+                    End If
+                End If
+
+            Next
+        End If
+        If regsAfectadosT Then
+            crearMensajesDOS()
+        End If
 
     End Sub
 
-    Private Sub checklist_Tick(sender As Object, e As EventArgs) Handles checklist.Tick
-        If botCheckList Then Exit Sub
-        botCheckList = True
-        checklist.Enabled = False
-        'Se buscan la anticipación de los checklist
-
-        Dim cadSQL = "SELECT *, IF(DATE_ADD(hora, INTERVAL tiempo * -1 SECOND) < 0, DATE_ADD(DATE_ADD(hora, INTERVAL tiempo * -1 SECOND), INTERVAL 86400 SECOND),DATE_ADD(hora, INTERVAL tiempo * -1 SECOND)) AS horas FROM " & rutaBD & ".plan_checklists WHERE anticipacion = 'S' AND frecuencia <> '0' AND frecuencia <> '1' AND estatus = 'A' AND (ISNULL(ejecutado) OR ejecutado <> CURDATE()) HAVING horas <= CURTIME()"
-        Dim planes = consultaSEL(cadSQL)
-        If planes.Tables(0).Rows.Count > 0 Then
-            For Each plan In planes.Tables(0).Rows
-                'Se notifica a la lista de distribución
-            Next
-        End If
-        botCheckList = False
-        checklist.Enabled = True
+    Private Sub TextEdit1_EditValueChanged(sender As Object, e As EventArgs) Handles TextEdit1.EditValueChanged
 
     End Sub
 
@@ -4530,12 +5050,12 @@ Public Class    XtraForm1
         Dim regsAfectados = 0
         Dim huboProceso = False
         If reader Is Nothing Then
-            cadSQL = "SELECT * FROM siggma.configuracion" & rutaBD
+            cadSQL = "Select * FROM siggma.configuracion" & rutaBD
             reader = consultaSEL(cadSQL)
             If reader Is Nothing Then
                 huboProceso = True
                 'Se crea la bases de datos
-                regsAfectados = consultaACT("CREATE DATABASE /*!32312 IF NOT EXISTS*/`sigma` /*!40100 DEFAULT CHARACTER SET latin1 */;
+                regsAfectados = consultaACT("CREATE DATABASE /*!32312 If Not EXISTS*/`sigma` /*!40100 Default CHARACTER Set latin1 */;
 
 USE `sigma`;
 
@@ -6500,7 +7020,7 @@ CREATE TABLE `int_opciones` (
 
 /*Data for the table `int_opciones` */
 
-insert  into `int_opciones`(`id`,`rol`,`nombre`,`orden`,`visualizar`,`acciones`,`opcion_app`,`url`,`estatus`) values (10,'O','Gestión de kanban',10,'N','SSSSS',12,'/exportar','I'),(20,'A','Visualizar alarmas',20,'S','SSSSS',23,'/exportar','A'),(30,'A','Terminar alertas',30,'S','SSSSS',9001,'N/A','A'),(40,'S','Confirmación de reparaciones',60,'S','SSSSS',9002,'N/A','A'),(50,'O','Generación de llamadas ANDON',40,'S','SSSSS',10,'/andon','A'),(60,'T','Atención a llamadas de ANDON',50,'S','SSSSS',11,'/andon','A'),(70,'G','Mantenimiento de Líneas/Células',60,'S','SSSSS',30,'/catalogos','A'),(80,'G','Mantenimiento de Máquinas',70,'S','SSSSS',31,'/catalogos','A'),(90,'G','Mantenimiento de Áreas',80,'S','SSSSS',32,'/catalogos','A'),(100,'G','Mantenimiento de Fallas',90,'S','SSSSS',33,'/catalogos','A'),(110,'G','Mantenimiento de Tablas generales',100,'S','SSSSS',34,'/catalogos','A'),(120,'G','Mantenimiento de Turnos',110,'S','SSSSS',38,'/catalogos','A'),(130,'G','Mantenimiento de Traductor',120,'S','SSSSS',39,'/catalogos','A'),(140,'G','Mantenimiento de Correos/Reportes',130,'S','SSSSS',36,'/catalogos','A'),(150,'G','Mantenimiento de Recipientes',140,'S','SSSSS',35,'/catalogos','A'),(160,'G','Mantenimiento de Alertas',150,'S','SSSSS',37,'/catalogos','A'),(170,'A','Gestión de usuarios',160,'S','SSSSS',41,'/catalogos','A'),(180,'A','Gestión de parámetros',170,'S','SSSSS',42,'/parametros','A'),(190,'*','MULTI-VISOR',180,'S','SSSSS',20,'/visor','A'),(200,'*','Consulta de gráficos',190,'S','SSSSS',21,'/graficas','A'),(210,'G','Descargar datos del sistema',200,'S','SSSSS',22,'/exportar','A'),(220,'A','Gestión de políticas',165,'S','SSSSS',43,'/catalogos','A'),(230,'*','Panel de control OEE y ANDON',175,'S','SSSSS',52,'/panel','A'),(240,'A','Gestión de reportes',170,'S','SSSSS',45,'Comp','A'),(250,'A','Equipamiento',180,'S','SSSSS',44,'/parametros','A'),(15,'O','Producción (OEE)',15,'S','SSSSS',13,'/produccion','A'),(260,'S','OEE - Reiniciar el conteo',63,'S','SSSSS',0,'N/A','A'),(270,'S','OEE - Iniciar un paro manual',61,'S','SSSSS',0,'N/A','A'),(280,'S','OEE - Terminar un paro',62,'S','SSSSS',0,'N/A','A'),(290,'S','OEE - Cambiar parámetros',64,'S','SSSSS',0,'N/A','A'),(300,'G','OEE - Mantenimiento de Rates de producción',131,'S','SSSSS',46,'/catalogos','A'),(310,'G','OEE - Mantenimiento de Objetivos',132,'S','SSSSS',47,'/catalogos','A'),(320,'G','OEE - Mantenimiento de Estimados de producción',133,'S','SSSSS',48,'/catalogos','A'),(330,'G','OEE - Gestión de sensores',124,'S','SSSSS',49,'/catalogos','A'),(340,'G','OEE - Gestión de paros',126,'S','SSSSS',50,'/catalogos','A'),(350,'*','Solicitud de SMED/Changeover',127,'S','SSSSS',51,'Comp','A'),(103,'G','Mantenimiento de Numeros de parte',93,'S','SSSSS',2003,'/catalogoswip','A'),(101,'G','Mantenimiento de Procesos',91,'S','SSSSS',2001,'/catalogoswip','A'),(102,'G','Mantenimiento de Rutas de fabricación',92,'S','SSSSS',2002,'/catalogoswip','A'),(241,'A','Gestión de lotes',175,'S','SSSSS',53,'Comp','A'),(295,'O','WIP - Permitir reverso de lotes',65,'S','SSSSS',0,'N/A','A'),(111,'O','Flujo de materiales (WIP)',111,'S','SSSSS',3001,'/operaciones','A'),(104,'G','Mantenimiento de Horarios de trabajo',94,'S','SSSSS',2007,'/catalogoswip','A'),(105,'G','Mantenimiento de Situaciones de calidad (WIP)',95,'S','SSSSS',2006,'/catalogoswip','A'),(106,'G','Mantenimiento de Prioridades de entrega (WIP)',97,'S','SSSSS',2011,'/flujo','A'),(107,'G','Programación de equipo (carga) (WIP)',96,'S','SSSSS',2010,'/flujo','A'),(108,'S','Inspección de lotes en cuarentena (WIP)',98,'S','SSSSS',2012,'/flujo','A'),(109,'S','Inspección de lotes rechazados (WIP)',99,'S','SSSSS',2013,'/flujo','A'),(110,'O','Consulta de inventarios (WIP)',100,'S','SSSSS',2014,'/flujo','A'),(296,'O','WIP - Enviar un lote a inspección',66,'S','SSSSS',3001,NULL,'A'),(297,'O','WIP - Rechazar un lore',67,'S','SSSSS',3002,NULL,'A'),(298,'O','WIP - Liberar un lote',68,'S','SSSSS',3003,NULL,'A'),(242,'O','Mantenimiento de Números de parte',176,'S','SSSSS',54,'/catalogos','A'),(243,'O','Documentación de reportes',177,'S','SSSSS',55,'Comp','A'),(245,'G','Gestión de rechazos',178,'S','SSSSS',56,'/catalogos','A'),(185,'G','Mantenimiento de Variables de checklist',129,'S','SSSSS',57,'/catalogos','A'),(187,'G','Mantenimiento de Checklists',130,'S','SSSSS',58,'/catalogos','A'),(189,'G','Planeación de Checklists',131,'S','SSSSS',59,'/catalogos','A'),(360,'O','OEE - Sincronizar sensores Buffer-Producción',134,'S','SSSSS',0,NULL,'A'),(370,'O','OEE - Ajuste de sensores',135,'S','SSSSS',0,NULL,'A');
+insert  into `int_opciones`(`id`,`rol`,`nombre`,`orden`,`visualizar`,`acciones`,`opcion_app`,`url`,`estatus`) values (10,'O','Gestión de kanban',10,'N','SSSSS',12,'/exportar','I'),(20,'A','Visualizar alarmas',20,'S','SSSSS',23,'/exportar','A'),(30,'A','Terminar alertas',30,'S','SSSSS',9001,'" & traduccion(145) & "','A'),(40,'S','Confirmación de reparaciones',60,'S','SSSSS',9002,'" & traduccion(145) & "','A'),(50,'O','Generación de llamadas ANDON',40,'S','SSSSS',10,'/andon','A'),(60,'T','Atención a llamadas de ANDON',50,'S','SSSSS',11,'/andon','A'),(70,'G','Mantenimiento de Líneas/Células',60,'S','SSSSS',30,'/catalogos','A'),(80,'G','Mantenimiento de Máquinas',70,'S','SSSSS',31,'/catalogos','A'),(90,'G','Mantenimiento de Áreas',80,'S','SSSSS',32,'/catalogos','A'),(100,'G','Mantenimiento de Fallas',90,'S','SSSSS',33,'/catalogos','A'),(110,'G','Mantenimiento de Tablas generales',100,'S','SSSSS',34,'/catalogos','A'),(120,'G','Mantenimiento de Turnos',110,'S','SSSSS',38,'/catalogos','A'),(130,'G','Mantenimiento de Traductor',120,'S','SSSSS',39,'/catalogos','A'),(140,'G','Mantenimiento de Correos/Reportes',130,'S','SSSSS',36,'/catalogos','A'),(150,'G','Mantenimiento de Recipientes',140,'S','SSSSS',35,'/catalogos','A'),(160,'G','Mantenimiento de Alertas',150,'S','SSSSS',37,'/catalogos','A'),(170,'A','Gestión de usuarios',160,'S','SSSSS',41,'/catalogos','A'),(180,'A','Gestión de parámetros',170,'S','SSSSS',42,'/parametros','A'),(190,'*','MULTI-VISOR',180,'S','SSSSS',20,'/visor','A'),(200,'*','Consulta de gráficos',190,'S','SSSSS',21,'/graficas','A'),(210,'G','Descargar datos del sistema',200,'S','SSSSS',22,'/exportar','A'),(220,'A','Gestión de políticas',165,'S','SSSSS',43,'/catalogos','A'),(230,'*','Panel de control OEE y ANDON',175,'S','SSSSS',52,'/panel','A'),(240,'A','Gestión de reportes',170,'S','SSSSS',45,'Comp','A'),(250,'A','Equipamiento',180,'S','SSSSS',44,'/parametros','A'),(15,'O','Producción (OEE)',15,'S','SSSSS',13,'/produccion','A'),(260,'S','OEE - Reiniciar el conteo',63,'S','SSSSS',0,'" & traduccion(145) & "','A'),(270,'S','OEE - Iniciar un paro manual',61,'S','SSSSS',0,'" & traduccion(145) & "','A'),(280,'S','OEE - Terminar un paro',62,'S','SSSSS',0,'" & traduccion(145) & "','A'),(290,'S','OEE - Cambiar parámetros',64,'S','SSSSS',0,'" & traduccion(145) & "','A'),(300,'G','OEE - Mantenimiento de Rates de producción',131,'S','SSSSS',46,'/catalogos','A'),(310,'G','OEE - Mantenimiento de Objetivos',132,'S','SSSSS',47,'/catalogos','A'),(320,'G','OEE - Mantenimiento de Estimados de producción',133,'S','SSSSS',48,'/catalogos','A'),(330,'G','OEE - Gestión de sensores',124,'S','SSSSS',49,'/catalogos','A'),(340,'G','OEE - Gestión de paros',126,'S','SSSSS',50,'/catalogos','A'),(350,'*','Solicitud de SMED/Changeover',127,'S','SSSSS',51,'Comp','A'),(103,'G','Mantenimiento de Numeros de parte',93,'S','SSSSS',2003,'/catalogoswip','A'),(101,'G','Mantenimiento de Procesos',91,'S','SSSSS',2001,'/catalogoswip','A'),(102,'G','Mantenimiento de Rutas de fabricación',92,'S','SSSSS',2002,'/catalogoswip','A'),(241,'A','Gestión de lotes',175,'S','SSSSS',53,'Comp','A'),(295,'O','WIP - Permitir reverso de lotes',65,'S','SSSSS',0,'" & traduccion(145) & "','A'),(111,'O','Flujo de materiales (WIP)',111,'S','SSSSS',3001,'/operaciones','A'),(104,'G','Mantenimiento de Horarios de trabajo',94,'S','SSSSS',2007,'/catalogoswip','A'),(105,'G','Mantenimiento de Situaciones de calidad (WIP)',95,'S','SSSSS',2006,'/catalogoswip','A'),(106,'G','Mantenimiento de Prioridades de entrega (WIP)',97,'S','SSSSS',2011,'/flujo','A'),(107,'G','Programación de equipo (carga) (WIP)',96,'S','SSSSS',2010,'/flujo','A'),(108,'S','Inspección de lotes en cuarentena (WIP)',98,'S','SSSSS',2012,'/flujo','A'),(109,'S','Inspección de lotes rechazados (WIP)',99,'S','SSSSS',2013,'/flujo','A'),(110,'O','Consulta de inventarios (WIP)',100,'S','SSSSS',2014,'/flujo','A'),(296,'O','WIP - Enviar un lote a inspección',66,'S','SSSSS',3001,NULL,'A'),(297,'O','WIP - Rechazar un lore',67,'S','SSSSS',3002,NULL,'A'),(298,'O','WIP - Liberar un lote',68,'S','SSSSS',3003,NULL,'A'),(242,'O','Mantenimiento de Números de parte',176,'S','SSSSS',54,'/catalogos','A'),(243,'O','Documentación de reportes',177,'S','SSSSS',55,'Comp','A'),(245,'G','Gestión de rechazos',178,'S','SSSSS',56,'/catalogos','A'),(185,'G','Mantenimiento de Variables de checklist',129,'S','SSSSS',57,'/catalogos','A'),(187,'G','Mantenimiento de Checklists',130,'S','SSSSS',58,'/catalogos','A'),(189,'G','Planeación de Checklists',131,'S','SSSSS',59,'/catalogos','A'),(360,'O','OEE - Sincronizar sensores Buffer-Producción',134,'S','SSSSS',0,NULL,'A'),(370,'O','OEE - Ajuste de sensores',135,'S','SSSSS',0,NULL,'A');
 
 /*Table structure for table `kanban` */
 
@@ -6919,7 +7439,7 @@ CREATE TABLE `plan_checklists` (
   `notas` varchar(300) DEFAULT NULL COMMENT 'Notas del registro',
   `checklists` char(1) DEFAULT 'S',
   `anticipacion` char(1) DEFAULT 'N',
-  `ejecutado` date DEFAULT NULL COMMENT 'Fecha de ejecucion',
+  `anticipado` date DEFAULT NULL COMMENT 'Fecha de ejecucion',
   `tiempo` int(6) DEFAULT '0',
   `estatus` char(1) DEFAULT 'A' COMMENT 'Estatus del registro',
   `creacion` datetime DEFAULT NULL COMMENT 'Fecha de creación',
@@ -7638,7 +8158,7 @@ CREATE TABLE `variables_valores` (
   KEY `NewIndex` (`variable`,`orden`)
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1;
 ")
-                XtraMessageBox.Show("Se ha creado la base de datos de la aplicación", "SIGMA v1.0", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                XtraMessageBox.Show(traduccion(110), "SIGMA v1.0", MessageBoxButtons.OK, MessageBoxIcon.Information)
             End If
         End If
 
@@ -7658,11 +8178,11 @@ CREATE TABLE `variables_valores` (
                 End If
             Next
             regsAfectados = consultaACT("DELETE FROM " & rutaBD & ".sentencias WHERE estatus = 'S'")
-            XtraMessageBox.Show("Se procesaron " & tSentencias & " sentencias SQL y se aplicaron " & aSentencias & " de manera correcta", "SIGMA v1.0", MessageBoxButtons.OK, If(aSentencias = tSentencias, MessageBoxIcon.Information, MessageBoxIcon.Error))
+            XtraMessageBox.Show(traduccion(111) & tSentencias & traduccion(112) & aSentencias & traduccion(113), "SIGMA v1.0", MessageBoxButtons.OK, If(aSentencias = tSentencias, MessageBoxIcon.Information, MessageBoxIcon.Error))
 
         End If
         If huboProceso Then
-            XtraMessageBox.Show("Se realizaron actualizaciones en la base de datos por lo que deberá iniciar de nuevo el Backend", "SIGMA v1.0", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            XtraMessageBox.Show(traduccion(114), "SIGMA v1.0", MessageBoxButtons.OK, MessageBoxIcon.Information)
             Application.Restart()
 
         Else
@@ -7671,8 +8191,693 @@ CREATE TABLE `variables_valores` (
 
     End Sub
 
+    Sub etiquetas()
+        Dim general = consultaSEL("SELECT cadena FROM " & rutaBD & ".det_idiomas_back WHERE idioma = " & IIf(be_idioma = 0, 1, be_idioma) & " AND modulo = 0 ORDER BY linea")
+        Dim cadenaTrad = ""
+        If general.Tables(0).Rows.Count > 0 Then
+            For Each cadena In general.Tables(0).Rows
+                cadenaTrad = cadenaTrad & cadena!cadena
+            Next
+        End If
+        traduccion = cadenaTrad.Split(New Char() {";"c})
+        Me.Text = traduccion(127)
+        'LabelControl2.Text = traduccion(128)
+        LabelControl1.Text = traduccion(135)
+        HyperlinkLabelControl1.Text = traduccion(129)
+        LabelControl4.Text = traduccion(133)
+        GroupControl1.Text = traduccion(134)
+
+        SimpleButton1.Text = traduccion(130)
+        SimpleButton2.ToolTip = traduccion(131)
+        SimpleButton3.ToolTip = traduccion(132)
+        SimpleButton3.ToolTipTitle = traduccion(137)
+        NotifyIcon1.Text = traduccion(136)
+        BarStaticItem1.Caption = traduccion(4) & Format(Now(), "dddd, dd-MMM-yyyy HH:mm:ss")
+        If estadoPrograma Then
+            agregarSolo(traduccion(5))
+        End If
+
+    End Sub
+
+    Private Sub fallasPLC_Tick(sender As Object, e As EventArgs)
+        If fallasPLCProcesando Or Not estadoPrograma Then Exit Sub
+        fallasPLCProcesando = True
 
 
+        Dim cadSQL = "SELECT * FROM " & rutaBD & ".fallas_plc WHERE estatus = 0"
+        Dim cadAgregar = ""
+        Dim registros As DataSet = consultaSEL(cadSQL, cadenaConexionFALLAS)
+        Dim pendiente As DataSet
+        Dim general As DataSet
+        Dim idMaquina As Long = 0
+        Dim idLinea As Long = 0
+        Dim idArea As Long = 0
+        Dim idUSuario As Long = 0
+        Dim regsAfectados = 0
+
+        Dim ultimoHora = Format(Now, "HH:mm:ss")
+        Dim restar = 0
+        Dim reportesCreados = 0
+
+        If registros Is Nothing Then
+            agregarSolo("No hubo conexión")
+            Exit Sub
+        End If
+        If registros.Tables(0).Rows.Count > 0 Then
+            For Each registro In registros.Tables(0).Rows
+                cadSQL = "SELECT record, estatus FROM " & rutaBD & ".temporal_plc WHERE record = " & registro!id
+                pendiente = consultaSEL(cadSQL)
+                If pendiente.Tables(0).Rows.Count = 0 Then
+
+                    Dim fechaReporte = registro!fecha
+                    cadSQL = "SELECT * FROM " & rutaBD & ".cat_turnos WHERE id = " & be_turno_actual
+                    Dim horarios As DataSet = consultaSEL(cadSQL)
+                    If horarios.Tables(0).Rows.Count > 0 Then
+                        If ValNull(horarios.Tables(0).Rows(0)!cambiodia, "A") = "S" Then
+
+                            If ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 1 And Format(fechaReporte, "HH") >= "00" And Format(fechaReporte, "HH:mm:ss") < horarios.Tables(0).Rows(0)!termina.ToString Then
+                                fechaReporte = DateAdd(DateInterval.Day, -1, fechaReporte)
+                            ElseIf ValNull(horarios.Tables(0).Rows(0)!mover, "N") = 2 And Format(fechaReporte, "HH:mm:ss") >= horarios.Tables(0).Rows(0)!inicia.ToString And Format(fechaReporte, "HHmmss") <= "235959" Then
+                                fechaReporte = DateAdd(DateInterval.Day, 1, fechaReporte)
+                            End If
+                        End If
+                        idUSuario = ValNull(horarios.Tables(0).Rows(0)!usuario, "N")
+                    End If
+                    idMaquina = 0
+                    idLinea = 0
+                    idArea = 0
+                    idUSuario = 0
+                    Dim tipo_andon = 0
+                    'Se busca máquina/línea
+
+                    cadSQL = "SELECT a.id, a.nombre, IFNULL((SELECT proceso FROM " & rutaBD & ".relacion_fallas_operaciones WHERE falla = a.id AND tipo = 1), 0) AS linea, IFNULL((SELECT proceso FROM  " & rutaBD & ".relacion_fallas_operaciones WHERE falla = a.id AND tipo = 2), 0) AS maquina, IFNULL((SELECT proceso FROM  " & rutaBD & ".relacion_fallas_operaciones WHERE falla = a.id AND tipo = 3), 0) AS area FROM  " & rutaBD & ".cat_fallas a WHERE a.plc = '" & registro!falla & "' AND estatus = 'A'"
+                    general = consultaSEL(cadSQL)
+                    If general.Tables(0).Rows.Count > 0 Then
+                        idMaquina = general.Tables(0).Rows(0)!maquina
+                        idLinea = general.Tables(0).Rows(0)!linea
+                        idArea = general.Tables(0).Rows(0)!area
+                        'Se agrega el registro en la tabla de reportes
+                        If idMaquina > 0 And idLinea > 0 And idArea > 0 Then
+
+                            cadSQL = "SELECT linea, usuario FROM " & rutaBD & ".cat_maquinas WHERE estatus = 'A' AND id = " & idMaquina
+                            Dim general2 As DataSet = consultaSEL(cadSQL)
+                            If general2.Tables(0).Rows.Count > 0 Then
+                                idLinea = general2.Tables(0).Rows(0)!linea
+                                If ValNull(general2.Tables(0).Rows(0)!usuario, "N") > 0 Then
+                                    idUSuario = ValNull(general2.Tables(0).Rows(0)!usuario, "N")
+                                End If
+                            End If
+
+                            reportesCreados = reportesCreados + 1
+                            cadAgregar = cadAgregar & "INSERT INTO " & rutaBD & ".reportes (linea, maquina, area, falla, falla_ajustada, solicitante, turno, fecha_reporte, fecha, mmcall, numero) VALUES(" & idLinea & ", " & idMaquina & ", " & idArea & ", " & general.Tables(0).Rows(0)!id & ", " & general.Tables(0).Rows(0)!id & ", " & IIf(idUSuario = 0, 1, idUSuario) & ", " & be_turno_actual & ", '" & Format(fechaReporte, "yyyy/MM/dd") & "', '" & Format(fechaReporte, "yyyy/MM/dd HH:mm:ss") & "', NOW(), " & registro!id & ")"
+                            cadAgregar = cadAgregar & ";INSERT INTO " & rutaBD & ".temporal_plc (record) VALUES(" & registro!id & ");"
+                        End If
+                    End If
+                End If
+            Next
+            If cadAgregar.Length > 0 Then
+                cadAgregar = Microsoft.VisualBasic.Strings.Mid(cadAgregar, 1, Len(cadAgregar) - 1)
+                regsAfectados = consultaACT(cadAgregar)
+                If reportesCreados > 0 Then
+                    agregarLOG(traduccion(185).Replace("campo_0", reportesCreados), 0, 0)
+                End If
+            End If
+        End If
+
+
+
+        'Se revisa de reversa (cierre de tickets)
+        cadSQL = "SELECT * FROM " & rutaBD & ".temporal_plc WHERE estatus = 0"
+        registros = consultaSEL(cadSQL)
+        If registros.Tables(0).Rows.Count > 0 Then
+            reportesCreados = 0
+            cadAgregar = ""
+            For Each registro In registros.Tables(0).Rows
+                cadSQL = "SELECT fecha_cierre FROM " & rutaBD & ".fallas_plc WHERE id = " & registro!record & " AND NOT ISNULL(fecha_cierre) AND estatus = 1"
+                pendiente = consultaSEL(cadSQL, cadenaConexionFALLAS)
+                cadSQL = "SELECT a.area, b.tecnico, b.cerrar_boton FROM " & rutaBD & ".reportes a INNER JOIN " & rutaBD & ".cat_areas b ON a.area = b.id WHERE a.numero = " & registro!record
+                general = consultaSEL(cadSQL)
+                Dim accion = "N"
+                Dim tecnico = 0
+                Dim fANDON = Format(DateAndTime.Now, "yyyy/MM/dd HH:mm:ss")
+                If general.Tables(0).Rows.Count > 0 Then
+                    accion = ValNull(general.Tables(0).Rows(0)!cerrar_boton, "A")
+                    tecnico = ValNull(general.Tables(0).Rows(0)!tecnico, "N")
+                End If
+                If pendiente.Tables(0).Rows.Count > 0 Then
+                    Dim fMMcall = Format(pendiente.Tables(0).Rows(0)!fecha_cierre, "yyyy/MM/dd HH:mm:ss")
+                    reportesCreados = reportesCreados + 1
+                    'Se valida si se cierra el reporte o no
+                    If accion = "N" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 10, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)) WHERE numero = " & registro!record
+                    ElseIf accion = "R" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 100, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), cierre_atencion = '" & fMMcall & "', tiemporeparacion = 0, inicio_reporte = NOW(), detalle = '" & traduccion(107) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE numero = " & registro!record
+                    ElseIf accion = "C" Then
+                        cadAgregar = cadAgregar & "UPDATE " & rutaBD & ".reportes SET estatus = 1000, inicio_atencion = '" & fMMcall & "', tiempollegada = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), cierre_atencion = '" & fMMcall & "', tiemporeparacion = 0, tiemporeporte = 0, inicio_reporte = '" & fMMcall & "', cierre_reporte = '" & fMMcall & "', detalle = '" & traduccion(108) & "', comentarios = '" & traduccion(108) & "', tiempoatencion = TIME_TO_SEC(TIMEDIFF('" & fMMcall & "', fecha)), tecnicoatend = " & tecnico & ", tecnico = " & tecnico & " WHERE numero = " & registro!record
+                    End If
+                    cadAgregar = cadAgregar & ";UPDATE " & rutaBD & ".temporal_plc SET estatus = 2 WHERE record = " & registro!record & ";"
+                End If
+            Next
+            If cadAgregar.Length > 0 Then
+                cadAgregar = Microsoft.VisualBasic.Strings.Mid(cadAgregar, 1, Len(cadAgregar) - 1)
+                regsAfectados = consultaACT(cadAgregar)
+                If reportesCreados > 0 Then
+                    agregarLOG(traduccion(186).Replace("campo_0", reportesCreados), 0, 0)
+                End If
+            End If
+        End If
+
+        cadSQL = "SELECT MAX(id) AS maximo FROM " & rutaBD & ".lecturas"
+        general = consultaSEL(cadSQL)
+        If general.Tables(0).Rows.Count > 0 Then
+            cadSQL = "SELECT * FROM " & rutaBD & ".lecturas WHERE id > " & ValNull(general.Tables(0).Rows(0)!maximo, "N") & " ORDER BY id"
+        Else
+            cadSQL = "SELECT * FROM " & rutaBD & ".lecturas ORDER BY id DESC LIMIT 1"
+        End If
+        registros = consultaSEL(cadSQL, cadenaConexionFALLAS)
+        cadSQL = ""
+        Dim agregadas = 0
+        If registros.Tables(0).Rows.Count > 0 Then
+            For Each registro In registros.Tables(0).Rows
+                agregadas = agregadas + 1
+                cadSQL = cadSQL & "INSERT INTO " & rutaBD & ".lecturas (fecha, sensor, valor) VALUES('" & Format(registro!fecha, "yyyy/MM/dd HH:mm:ss") & "', " & registro!sensor & ", " & registro!valor & ");"
+            Next
+        End If
+        If cadSQL.Length > 0 Then
+            cadSQL = Strings.Mid(cadSQL, 1, cadSQL.Length - 1)
+            regsAfectados = consultaACT(cadSQL)
+        End If
+        fallasPLCProcesando = False
+    End Sub
+
+    Sub calcularTiempos(fechaD, fechaH, proceso, maquina)
+        tDisponible = 3600
+        tMantto = 0
+        Dim diaSemana = 0
+        Dim fechaEspecifica As Boolean = False
+        Dim procesoEspecifico As Boolean = False
+        Dim fechaEstimada = fechaD
+        Dim horaDesde = Format(fechaD, "HH:mm:ss")
+        Dim horaHasta = Format(fechaH, "HH:mm:ss")
+        Dim primerDia = True
+        Dim MaximoDias = 14
+        Dim diasContados = 0
+        Dim primerRegistro = True
+        Dim combinacion = 0
+        Dim sumando As Boolean = True
+        Dim continuar = False
+        Dim rangosPositivosD(0) As String
+        Dim rangosPositivosH(0) As String
+        Dim rangosNegativosD(0) As String
+        Dim rangosNegativosH(0) As String
+        Dim rangoPositivo = 0
+        Dim rangoNegativo = 0
+        Dim horarios As DataSet
+        Dim cadSQL = ""
+        'Recorrido por día
+        diaSemana = DateAndTime.Weekday(fechaEstimada) - 1
+        cadSQL = "SELECT desde, hasta, dia, proceso, tipo FROM " & rutaBD & ".horarios WHERE (dia = " & diaSemana & " OR (dia = 9 AND fecha = '" & Format(fechaEstimada, "yyyy/MM/dd") & "')) AND (proceso = 0 OR proceso = " & proceso & ") AND ('" & horaHasta & "' <= hasta OR '" & horaDesde & "' >= desde) ORDER BY tipo DESC, proceso DESC, dia DESC, desde, hasta"
+        horarios = consultaSEL(cadSQL)
+        procesoEspecifico = False
+        fechaEspecifica = False
+
+        If horarios.Tables(0).Rows.Count > 0 Then
+            For Each rango In horarios.Tables(0).Rows
+                If rango!desde.ToString < horaHasta And rango!hasta.ToString >= horaDesde Then
+                    If primerRegistro Then
+
+                        primerRegistro = False
+                        If rango!tipo = "S" Then
+                            rangoPositivo = rangoPositivo + 1
+                            If rango!desde.ToString < horaDesde Then
+                                rangosPositivosD(rangoPositivo - 1) = horaDesde
+                            Else
+                                rangosPositivosD(rangoPositivo - 1) = rango!desde.ToString
+                            End If
+                            If rango!hasta.ToString > horaHasta Then
+                                rangosPositivosH(rangoPositivo - 1) = horaHasta
+                            Else
+                                rangosPositivosH(rangoPositivo - 1) = rango!hasta.ToString
+                            End If
+                            procesoEspecifico = rango!proceso <> 0
+                            fechaEspecifica = rango!dia = 9
+                            If procesoEspecifico And fechaEspecifica Then
+                                combinacion = 1
+                            ElseIf procesoEspecifico Then
+                                combinacion = 2
+                            ElseIf fechaEspecifica Then
+                                combinacion = 3
+                            Else
+                                combinacion = 4
+                            End If
+                        End If
+                    Else
+                        If sumando And rango!tipo = "N" Then
+                            sumando = False
+                            rangoNegativo = rangoNegativo + 1
+                            If rango!desde.ToString < horaDesde Then
+                                rangosNegativosD(rangoNegativo - 1) = horaDesde
+                            Else
+                                rangosNegativosD(rangoNegativo - 1) = rango!desde.ToString
+                            End If
+                            If rango!hasta.ToString > horaHasta Then
+                                rangosNegativosH(rangoNegativo - 1) = horaHasta
+                            Else
+                                rangosNegativosH(rangoNegativo - 1) = rango!hasta.ToString()
+                            End If
+                            procesoEspecifico = rango!proceso <> 0
+                            fechaEspecifica = rango!dia = 9
+                            If procesoEspecifico And fechaEspecifica Then
+                                combinacion = 1
+                            ElseIf procesoEspecifico Then
+                                combinacion = 2
+                            ElseIf fechaEspecifica Then
+                                combinacion = 3
+                            Else
+                                combinacion = 4
+                            End If
+                        Else
+                            If combinacion = 1 Then
+                                continuar = rango!proceso <> 0 And rango!dia <> 9
+                            ElseIf combinacion = 2 Then
+                                continuar = rango!proceso <> 0
+                            ElseIf combinacion = 3 Then
+                                continuar = rango!dia = 9
+                            Else
+                                continuar = True
+                            End If
+                        End If
+                        If continuar Then
+                            If sumando Then
+                                rangoPositivo = rangoPositivo + 1
+                                ReDim Preserve rangosPositivosD(rangoPositivo)
+                                ReDim Preserve rangosPositivosH(rangoPositivo)
+                                If rango!desde.ToString < horaDesde Then
+                                    rangosPositivosD(rangoPositivo - 1) = horaDesde
+                                Else
+                                    rangosPositivosD(rangoPositivo - 1) = rango!desde.ToString
+                                End If
+                                If rango!hasta.ToString > horaHasta Then
+                                    rangosPositivosH(rangoPositivo - 1) = horaHasta
+                                Else
+                                    rangosPositivosH(rangoPositivo - 1) = rango!hasta.ToString
+                                End If
+                            Else
+                                rangoNegativo = rangoNegativo + 1
+                                ReDim Preserve rangosNegativosD(rangoNegativo)
+                                ReDim Preserve rangosNegativosH(rangoNegativo)
+                                If rango!desde.ToString < horaDesde Then
+                                    rangosNegativosD(rangoNegativo - 1) = horaDesde
+                                Else
+                                    rangosNegativosD(rangoNegativo - 1) = rango!desde.ToString
+                                End If
+                                If rango!hasta.ToString > horaHasta Then
+                                    rangosNegativosH(rangoNegativo - 1) = horaHasta
+                                Else
+                                    rangosNegativosH(rangoNegativo - 1) = rango!hasta.ToString()
+                                End If
+
+                            End If
+                        End If
+                    End If
+                End If
+            Next
+        End If
+        'Se crear un registro único por día
+        If rangoPositivo > 0 Then
+            Dim arreDefD(0) As String
+            Dim arreDefH(0) As String
+            Dim arreDefP(0) As String
+            Dim totalItems = 1
+            arreDefD(0) = rangosPositivosD(0)
+            arreDefH(0) = rangosPositivosH(0)
+            arreDefP(0) = "S"
+            For i = 0 To rangoPositivo - 1
+                If rangosPositivosD(i) > arreDefD(totalItems - 1) Then
+                    totalItems = totalItems + 1
+                    ReDim Preserve arreDefD(totalItems)
+                    ReDim Preserve arreDefH(totalItems)
+                    ReDim Preserve arreDefP(totalItems)
+                    arreDefD(totalItems - 1) = rangosPositivosD(i)
+                    arreDefH(totalItems - 1) = rangosPositivosH(i)
+                    arreDefP(totalItems - 1) = "S"
+                ElseIf rangosPositivosH(i) > arreDefH(totalItems - 1) Then
+                    arreDefH(totalItems - 1) = rangosPositivosH(i)
+                End If
+            Next
+            If rangoNegativo > 0 Then
+                For i = 0 To rangoNegativo - 1
+                    For j = 0 To totalItems - 1
+                        If rangosNegativosD(i) <= arreDefD(j) And rangosNegativosH(i) >= arreDefH(j) Then
+                            arreDefP(j) = "N"
+                        End If
+                        If rangosNegativosD(i) <= arreDefD(j) And rangosNegativosH(i) >= arreDefD(j) Then
+                            arreDefD(j) = rangosNegativosH(i)
+                        End If
+                        If rangosNegativosD(i) >= arreDefD(j) And rangosNegativosD(i) < arreDefH(j) And rangosNegativosH(i) >= arreDefH(j) Then
+                            arreDefH(j) = rangosNegativosD(i)
+                        End If
+                        If rangosNegativosD(i) > arreDefD(j) And rangosNegativosH(i) < arreDefH(j) Then
+                            totalItems = totalItems + 1
+                            ReDim Preserve arreDefD(totalItems)
+                            ReDim Preserve arreDefH(totalItems)
+                            ReDim Preserve arreDefP(totalItems)
+                            arreDefD(totalItems - 1) = rangosNegativosH(i)
+                            arreDefH(totalItems - 1) = arreDefH(j)
+                            arreDefP(totalItems - 1) = "S"
+                            arreDefH(j) = rangosNegativosD(i)
+                        End If
+                    Next
+                Next
+            End If
+            If totalItems > 0 Then
+                Dim swap1 = 0
+                Dim swap2 = 0
+                Dim swap3 = 0
+                For i = 0 To totalItems - 1
+                    For j = 0 To totalItems - 2
+                        If arreDefD(j) > arreDefD(j + 1) Then
+                            swap1 = arreDefD(j)
+                            swap2 = arreDefH(j)
+                            swap3 = arreDefP(j)
+                            arreDefD(j) = arreDefD(j + 1)
+                            arreDefH(j) = arreDefH(j + 1)
+                            arreDefP(j) = arreDefP(i + 1)
+                            arreDefD(j + 1) = swap1
+                            arreDefH(j + 1) = swap2
+                            arreDefP(j + 1) = swap3
+                        End If
+                    Next
+                Next
+                tDisponible = 0
+                For i = 0 To totalItems - 1
+                    If arreDefP(i) = "S" Then
+                        horaDesde = arreDefD(i)
+                        tDisponible = tDisponible + DateDiff(DateInterval.Second, Convert.ToDateTime(Format(fechaD, "yyyy/MM/dd") & " " & arreDefD(i)), Convert.ToDateTime(Format(fechaD, "yyyy/MM/dd") & " " & arreDefH(i)))
+                    End If
+                Next
+            End If
+        End If
+
+        horaDesde = Format(fechaD, "HH:mm:ss")
+        horaHasta = Format(fechaH, "HH:mm:ss")
+        ReDim Preserve rangosPositivosD(0)
+        ReDim Preserve rangosPositivosH(0)
+        rangoPositivo = 0
+        rangoNegativo = 0
+        primerRegistro = False
+
+
+        cadSQL = "SELECT desde, hasta FROM " & rutaBD & ".detalleparos WHERE maquina = " & maquina & " AND estado = 'L' AND estatus = 'A' AND ('" & Format(fechaH, "yyyy/MM/dd HH:mm:ss") & "' <= hasta OR '" & Format(fechaH, "yyyy/MM/dd HH:mm:ss") & "' >= desde) ORDER BY desde, hasta"
+        horarios = consultaSEL(cadSQL)
+        primerRegistro = True
+        If horarios.Tables(0).Rows.Count > 0 Then
+            For Each rango In horarios.Tables(0).Rows
+                If rango!desde < fechaH And rango!hasta > fechaD Then
+                    If primerRegistro Then
+                        primerRegistro = False
+                        rangoPositivo = rangoPositivo + 1
+                        If Format(rango!desde, "HH:mm:ss") < horaDesde Then
+                            rangosPositivosD(rangoPositivo - 1) = horaDesde
+                        Else
+                            rangosPositivosD(rangoPositivo - 1) = Format(rango!desde, "HH:mm:ss")
+                        End If
+                        If Format(rango!hasta, "HH:mm:ss") > horaHasta Then
+                            rangosPositivosH(rangoPositivo - 1) = horaHasta
+                        Else
+                            rangosPositivosH(rangoPositivo - 1) = Format(rango!hasta, "HH:mm:ss")
+                        End If
+                    Else
+                        rangoPositivo = rangoPositivo + 1
+                        ReDim Preserve rangosPositivosD(rangoPositivo)
+                        ReDim Preserve rangosPositivosH(rangoPositivo)
+                        If Format(rango!desde, "HH:mm:ss") < horaDesde Then
+                            rangosPositivosD(rangoPositivo - 1) = horaDesde
+                        Else
+                            rangosPositivosD(rangoPositivo - 1) = Format(rango!desde, "HH:mm:ss")
+                        End If
+                        If Format(rango!hasta, "HH:mm:ss") > horaHasta Then
+                            rangosPositivosH(rangoPositivo - 1) = horaHasta
+                        Else
+                            rangosPositivosH(rangoPositivo - 1) = Format(rango!hasta, "HH:mm:ss")
+                        End If
+                    End If
+                End If
+            Next
+        End If
+        'Se crear un registro único por día
+        If rangoPositivo > 0 Then
+            Dim arreDefD(0) As String
+            Dim arreDefH(0) As String
+            Dim arreDefP(0) As String
+            Dim totalItems = 1
+            arreDefD(0) = rangosPositivosD(0)
+            arreDefH(0) = rangosPositivosH(0)
+            arreDefP(0) = "S"
+            For i = 0 To rangoPositivo - 1
+                If rangosPositivosD(i) > arreDefD(totalItems - 1) Then
+                    totalItems = totalItems + 1
+                    ReDim Preserve arreDefD(totalItems)
+                    ReDim Preserve arreDefH(totalItems)
+                    ReDim Preserve arreDefP(totalItems)
+                    arreDefD(totalItems - 1) = rangosPositivosD(i)
+                    arreDefH(totalItems - 1) = rangosPositivosH(i)
+                    arreDefP(totalItems - 1) = "S"
+                ElseIf rangosPositivosH(i) > arreDefH(totalItems - 1) Then
+                    arreDefH(totalItems - 1) = rangosPositivosH(i)
+                End If
+            Next
+            If totalItems > 0 Then
+                Dim swap1 = 0
+                Dim swap2 = 0
+                Dim swap3 = 0
+                For i = 0 To totalItems - 1
+                    For j = 0 To totalItems - 2
+                        If arreDefD(j) > arreDefD(j + 1) Then
+                            swap1 = arreDefD(j)
+                            swap2 = arreDefH(j)
+                            swap3 = arreDefP(j)
+                            arreDefD(j) = arreDefD(j + 1)
+                            arreDefH(j) = arreDefH(j + 1)
+                            arreDefP(j) = arreDefP(i + 1)
+                            arreDefD(j + 1) = swap1
+                            arreDefH(j + 1) = swap2
+                            arreDefP(j + 1) = swap3
+                        End If
+                    Next
+                Next
+                For i = 0 To totalItems - 1
+                    If arreDefP(i) = "S" Then
+                        horaDesde = arreDefD(i)
+                        tMantto = tMantto + DateDiff(DateInterval.Second, Convert.ToDateTime(Format(fechaD, "yyyy/MM/dd") & " " & arreDefD(i)), Convert.ToDateTime(Format(fechaD, "yyyy/MM/dd") & " " & arreDefH(i)))
+                    End If
+                Next
+            End If
+        End If
+
+    End Sub
+
+    Sub crearProgramacion(maquina As Long, lote As Long, parte As Long, fecha As DateTime, proceso As Long, cantidad As Double, van As Double)
+        Dim regsAfectados = 0
+        Dim cadSQL = ""
+        If cantidad - van <= 0 Then Exit Sub
+
+        Dim rateEquipo As Double = 1
+        Dim medTiempo As Long = 0
+        regsAfectados = consultaACT("UPDATE " & rutaBD & ".horaxhora SET estatus = 'C' WHERE (dia = '" & Format(fecha, "yyyy/MM/dd") & "' AND hora >= " & Format(fecha, "HH") & " OR dia > '" & Format(fecha, "yyyy/MM/dd") & "') AND equipo = " & maquina & " AND lote = " & lote & " AND estatus = 'A'")
+
+        cadSQL = "SELECT plan_van FROM " & rutaBD & ".horaxhora WHERE (dia = '" & Format(fecha, "yyyy/MM/dd") & "' AND hora <= " & Format(fecha, "HH") & " OR dia < '" & Format(fecha, "yyyy/MM/dd") & "') AND equipo = " & maquina & " AND lote = " & lote & " AND estatus = 'A' OR estatus = 'Z' ORDER BY dia, desde DESC LIMIT 1"
+        Dim vanPlan = 0
+        Dim general As DataSet = consultaSEL(cadSQL)
+        If general.Tables(0).Rows.Count > 0 Then
+            vanPlan = general.Tables(0).Rows(0)!plan_van
+        End If
+
+
+
+        cadSQL = "SELECT piezas, tiempo, unidad FROM " & rutaBD & ".relacion_partes_equipos WHERE (equipo = " & maquina & " Or equipo = 0) AND (parte = " & parte & " Or parte = 0) ORDER BY parte DESC, equipo DESC LIMIT 1"
+        general = consultaSEL(cadSQL)
+        If general.Tables(0).Rows.Count > 0 Then
+            rateEquipo = general.Tables(0).Rows(0)!piezas
+            medTiempo = general.Tables(0).Rows(0)!tiempo
+        End If
+
+        If rateEquipo = 0 Then rateEquipo = 1
+        Dim TC As Double = 0
+        If rateEquipo = 0 Then
+            TC = 1
+        ElseIf medTiempo = 2 Then
+            TC = 3600 / rateEquipo
+        ElseIf medTiempo = 1 Then
+            TC = 60 / rateEquipo
+            ' TC = rateEquipo / 60
+        ElseIf medTiempo = 0 Then
+            TC = 1 / rateEquipo
+        ElseIf medTiempo = 3 Then
+            TC = 86400 / rateEquipo
+        End If
+
+        TC = Math.Round(TC, 10)
+
+        Dim completado = False
+        Dim fechaInicial = fecha
+        Dim cantidadInicial = cantidad - van
+
+        Dim primeraVez = True
+        Dim secuenciaTurno
+        Dim BTurno As Integer = 0
+        Dim elTurno = 0
+        Do While Not completado
+
+            Dim termina = Format(fechaInicial, "HH") & ":59:59"
+            Dim inicia = Format(fechaInicial, "HH:mm:ss")
+            elTurno = -1
+            'Saber en que turno está
+            cadSQL = "SELECT id, inicia, termina, nombre FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND (inicia <= '" & inicia & "' OR termina >= '" & inicia & "') ORDER BY inicia, termina"
+            Dim horarios As DataSet = consultaSEL(cadSQL)
+            If horarios.Tables(0).Rows.Count > 0 Then
+                For Each horario In horarios.Tables(0).Rows
+                    If inicia >= horario!inicia.ToString And inicia <= horario!termina.ToString Then
+                        elTurno = horario!id
+                        Exit For
+                    End If
+                Next
+                If elTurno = -1 Then
+                    For Each horario In horarios.Tables(0).Rows
+                        If (inicia >= horario!inicia.ToString Or inicia <= horario!termina.ToString) And horario!termina.ToString < horario!inicia.ToString Then
+                            elTurno = horario!id
+                            Exit For
+                        End If
+                    Next
+
+                End If
+
+            End If
+
+            Dim plan = 0
+            cadSQL = "SELECT secuencia, termina FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND termina > '" & inicia & "' AND termina < '" & termina & "'"
+            Dim turnos As DataSet = consultaSEL(cadSQL)
+            If turnos.Tables(0).Rows.Count > 0 Then
+                termina = turnos.Tables(0).Rows(0)!termina.ToString
+                secuenciaTurno = turnos.Tables(0).Rows(0)!secuencia
+                BTurno = 1
+            End If
+
+            calcularTiempos(Convert.ToDateTime(Format(fechaInicial, "yyyy/MM/dd") & " " & inicia), Convert.ToDateTime(Format(fechaInicial, "yyyy/MM/dd") & " " & termina), proceso, maquina)
+            If (tDisponible - tMantto) > TC Then
+                plan = Math.Round((tDisponible - tMantto) / TC, 0)
+                If cantidadInicial - plan < 0 Then
+                    plan = cantidadInicial
+                End If
+            End If
+            'If tDisponible Or tMantto > 0 Or BTurno > 0 Then
+            vanPlan = vanPlan + plan
+            regsAfectados = consultaACT("INSERT INTO " & rutaBD & ".horaxhora (equipo, dia, hora, desde, hasta, plan, lote, parte, tc, disponible, mantto, plan_van, ruptura, turno) VALUES (" & maquina & ", '" & Format(fechaInicial, "yyyy/MM/dd") & "', " & Strings.Left(inicia, 2) & ", '" & inicia & "', '" & termina & "', " & plan & ", " & lote & ", " & parte & ", " & TC & ", " & IIf(tDisponible = 3599, 3600, tDisponible) & ", " & IIf(tMantto = 3599, 3600, tMantto) & ", " & vanPlan & ", " & IIf(BTurno > 0, 1, 0) & ", " & elTurno & ")")
+            cantidadInicial = cantidadInicial - plan
+            ' End If
+            If BTurno = 2 Then
+                BTurno = 0
+            End If
+
+            If cantidadInicial <= 0 Then
+                completado = True
+            Else
+                If BTurno = 1 Then
+                    cadSQL = "SELECT inicia FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND secuencia > " & secuenciaTurno & " ORDER BY secuencia LIMIT 1"
+                    turnos = consultaSEL(cadSQL)
+                    If turnos.Tables(0).Rows.Count > 0 Then
+                        inicia = turnos.Tables(0).Rows(0)!inicia.ToString
+                    Else
+                        cadSQL = "SELECT inicia FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A'ORDER BY secuencia LIMIT 1"
+                        turnos = consultaSEL(cadSQL)
+                        If turnos.Tables(0).Rows.Count > 0 Then
+                            inicia = turnos.Tables(0).Rows(0)!inicia.ToString
+                        End If
+                    End If
+                    BTurno = 2
+                    fechaInicial = Convert.ToDateTime(Format(fechaInicial, "yyyy/MM/dd") & " " & inicia)
+                Else
+                    fechaInicial = DateAndTime.DateAdd(DateInterval.Second, 1, Convert.ToDateTime(Format(fechaInicial, "yyyy/MM/dd") & " " & termina))
+                End If
+            End If
+        Loop
+        regsAfectados = consultaACT("UPDATE " & rutaBD & ".cat_maquinas SET replanear = 'Y' WHERE id = " & maquina)
+        Dim hxh = consultaSEL(cadSQL)
+    End Sub
+
+
+    Sub compaginar(maquina As Long, lote As Long, fecha As String, hora As Integer)
+        Dim iniPlan = 0
+        Dim regsAfectados = 0
+        Dim cadSQL = "SELECT plan_van FROM " & rutaBD & ".horaxhora WHERE (dia = '" & fecha & "' AND hora <= " & hora & " OR dia < '" & fecha & "') AND equipo = " & maquina & " AND lote = " & lote & " AND estatus = 'A' OR estatus = 'Z' ORDER BY dia, desde DESC LIMIT 1"
+        Dim general As DataSet = consultaSEL(cadSQL)
+        If general.Tables(0).Rows.Count > 0 Then
+            iniPlan = general.Tables(0).Rows(0)!plan_van
+        End If
+        cadSQL = "SELECT id, plan, tocada, turno, desde FROM " & rutaBD & ".horaxhora WHERE (dia = '" & fecha & "' AND hora >= " & hora & " OR dia > '" & fecha & "') AND equipo = " & maquina & " AND lote = " & lote & " AND estatus = 'A' ORDER BY dia, hora"
+        general = consultaSEL(cadSQL)
+        Dim cadAdic = ""
+        If general.Tables(0).Rows.Count > 0 Then
+            For Each plan In general.Tables(0).Rows
+                iniPlan = iniPlan + plan!plan
+                Dim elTurno = -1
+                If plan!tocada = 0 And plan!turno Then
+                    'Saber en que turno está
+                    cadSQL = "SELECT id, inicia, termina FROM " & rutaBD & ".cat_turnos WHERE estatus = 'A' AND (inicia <= '" & plan!desde & "' OR termina >= '" & plan!desde & "') ORDER BY inicia, termina"
+                    Dim horarios As DataSet = consultaSEL(cadSQL)
+                    If horarios.Tables(0).Rows.Count > 0 Then
+                        For Each horario In horarios.Tables(0).Rows
+                            If plan!desde >= horario!inicia.ToString And plan!desde <= horario!termina.ToString Then
+                                elTurno = horario!id
+                                Exit For
+                            End If
+                        Next
+                        If elTurno = -1 Then
+                            For Each horario In horarios.Tables(0).Rows
+                                If (plan!desde >= horario!inicia.ToString Or plan!desde <= horario!termina.ToString) And horario!termina.ToString < horario!inicia.ToString Then
+                                    elTurno = horario!id
+                                    Exit For
+                                End If
+                            Next
+                        End If
+                    End If
+                    If elTurno > -1 Then
+                        cadAdic = cadAdic & "UPDATE " & rutaBD & ".horaxhora SET plan_van = " & iniPlan & ", turno = " & elTurno & " WHERE id = " & plan!id & ";"
+                    End If
+                Else
+                    cadAdic = cadAdic & "UPDATE " & rutaBD & ".horaxhora SET plan_van = " & iniPlan & " WHERE id = " & plan!id & ";"
+                End If
+            Next
+        End If
+        regsAfectados = consultaACT(cadAdic & "UPDATE " & rutaBD & ".cat_maquinas SET compaginar = 'N' WHERE id = " & maquina)
+    End Sub
+
+
+    Sub mensajeEmergencia(accion As Boolean)
+        Try
+            agregarSolo(IIf(accion, traduccion(187), traduccion(188)))
+            Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & IIf(accion, "P_EMERGENCIA", "R_EMERGENCIA") & Chr(34), AppWinStyle.MinimizedNoFocus)
+        Catch ex As Exception
+            agregarLOG(traduccion(28) & "mensajes.exe" & traduccion(29) & ex.Message, 7, 0)
+        End Try
+    End Sub
+
+    Sub mensajeOPCompleta(orden As Long)
+        Try
+            agregarSolo(traduccion(190))
+            Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "completada" & ";" & orden & Chr(34), AppWinStyle.MinimizedNoFocus)
+        Catch ex As Exception
+            agregarLOG(traduccion(28) & "mensajes.exe" & traduccion(29) & ex.Message, 7, 0)
+        End Try
+    End Sub
+    Sub mensajeOPCambio(entrante As Long, saliente As Long)
+        Try
+            agregarSolo(traduccion(189))
+            Shell(Application.StartupPath & "\mensajes.exe " & Chr(34) & cadenaConexion & Chr(34) & " " & Chr(34) & "cambio" & ";" & saliente & ";" & entrante & Chr(34), AppWinStyle.MinimizedNoFocus)
+        Catch ex As Exception
+            agregarLOG(traduccion(28) & "mensajes.exe" & traduccion(29) & ex.Message, 7, 0)
+        End Try
+    End Sub
 
 End Class
 

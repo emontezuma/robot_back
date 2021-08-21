@@ -13,9 +13,14 @@ Module basico
     Public usuarioCerrar As String
     Public cadenaConexion As String
     Public cadenaConexionMMCALL As String
-    Public rutaBD As String = "sigma"
+    Public cadenaConexionFALLAS As String
+    Public rutaBD As String = "robot"
     Public rutaMMCALL As String = "mmcall"
     Public miTurno As Long
+    Public miSecuencia As Long
+
+    Public esaqui As Boolean = False
+    Public traduccion As String()
 
 
     Public Function conexion(miCadenaConexion As String) As MySqlConnection
@@ -84,6 +89,7 @@ Module basico
                 End Try
             End If
         Catch ex As Exception
+
             errorBD = ex.Message
         Finally
             miConexion.Dispose()

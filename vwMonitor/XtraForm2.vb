@@ -16,10 +16,10 @@ Public Class XtraForm2
 
         If reader.Tables(0).Rows.Count > 0 Then
             If ValNull(reader.Tables(0).Rows(0)!estatus, "A") <> "A" Then
-                XtraMessageBox.Show("El usuario no está activo en el sistema", "Usuario inactivo", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                XtraMessageBox.Show(traduccion(115), traduccion(116), MessageBoxButtons.OK, MessageBoxIcon.Error)
                 TextEdit1.Focus()
             ElseIf ValNull(reader.Tables(0).Rows(0)!rol, "A") <> "A" Then
-                XtraMessageBox.Show("El usuario no tiene suficientes privilegios para desconectar esta aplicación", "Permisos insuficientes", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                XtraMessageBox.Show(traduccion(117), traduccion(118), MessageBoxButtons.OK, MessageBoxIcon.Error)
                 TextEdit1.Focus()
             Else
 
@@ -27,7 +27,7 @@ Public Class XtraForm2
             End If
             Me.Close()
         Else
-            XtraMessageBox.Show("El usuario o la contraseña no son correctas", "Credenciales inválidas", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            XtraMessageBox.Show(traduccion(119), traduccion(120), MessageBoxButtons.OK, MessageBoxIcon.Error)
             TextEdit1.Focus()
         End If
     End Sub
@@ -41,7 +41,12 @@ Public Class XtraForm2
     End Sub
 
     Private Sub XtraForm2_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
+        Me.Text = traduccion(121)
+        SimpleButton1.Text = traduccion(122)
+        SimpleButton2.Text = traduccion(123)
+        GroupControl1.Text = traduccion(124)
+        LabelControl4.Text = traduccion(125)
+        LabelControl1.Text = traduccion(126)
     End Sub
 
     Private Sub TextEdit1_GotFocus(sender As Object, e As EventArgs) Handles TextEdit1.GotFocus
@@ -50,7 +55,7 @@ Public Class XtraForm2
 
     Private Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
         cronometro = cronometro - 1
-        LabelControl2.Text = "Esta ventana se cerrará en " & cronometro & " segundo(s)"
+        'LabelControl2.Text = traduccion(121).Replace("campo_0", cronometro)
         If cronometro <= 0 Then
             Me.Close()
         End If
